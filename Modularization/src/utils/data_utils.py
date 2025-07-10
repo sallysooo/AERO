@@ -9,9 +9,13 @@ from scapy.utils import RawPcapReader
 from tqdm import tqdm
 from scipy.stats import skew
 
+import os
+import pickle
+
 # 현재 파일(data_utils.py)의 위치를 기준으로 dataset 폴더의 절대 경로를 계산
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATASET_DIR = BASE_DIR / 'dataset'
+
 
 # 1. TimeSeriesGenerator
 class TimeseriesGenerator:
@@ -232,17 +236,10 @@ class PktDataset:
         if len(proto_seq) < window_size:
           raise ValueError(f"Insufficient data length ({len(proto_seq)}) for window_size {window_size}")
 
-        # checkpoint
-        print("Data shape:", proto_seq.shape)
-        print("Window size:", window_size)
-
         # 3. sliding window using TimeseriesGenerator
         generator = TimeseriesGenerator(proto_seq, length=window_size, sampling_rate=1, stride=1, batch_size=1, shuffle=False)
 
-        print("Generator length:", len(generator))
-        # if len(generator) == 0:
-        #   print("Warning: Generator is empty! Check window_size and data length.")
-        #   return np.zeros((0, N, N))
+        # print("Generator length:", len(generator)) : 97715 - 2048 + 1 = 95668
 
         result = []
         for X, _ in generator:
@@ -299,10 +296,6 @@ class PktDataset:
             batch_size = 1,
             shuffle = False
             )
-
-        # checkpoint
-        print("Data shape:", np.stack([monotime, protos], axis=1).shape)
-        print("Window size:", window_size)
 
         result = []
         for X, _ in generator:
@@ -475,22 +468,35 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
 
 
 
-def get_processed_dataset(window_size=2048, stride=1, batch_size=64):
-    list_output = list()
-    list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-    for arg in args:
-        output, dataset_sub = do(*arg)
-        list_output.append(output)
-        list_dataset_sub.append(dataset_sub)
+def get_processed_dataset(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f'dataset_ws{window_size}_st{stride}_bs{batch_size}.pkl')
 
-    original_dataset = list_dataset_sub[0] # 'train' part in dataset_train
+    # 1. load cache
+    if os.path.exists(cache_path):
+        with open(cache_path, 'rb') as f:
+            T, P, S = pickle.load(f)
+    else:
+        # 2. When cache doesn't exists
+        list_output = list()
+        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
+        for arg in args:
+            output, dataset_sub = do(*arg)
+            list_output.append(output)
+            list_dataset_sub.append(dataset_sub)
 
-    T = original_dataset.do_fg1_transition_matrix() # (95668, 3, 3)
-    P = original_dataset.do_fg2_payload() # (97715, 9)
-    S = original_dataset.do_fg3_statistics() # (95668, 3, 3)
+        original_dataset = list_dataset_sub[0] # 'train' part in dataset_train
 
-    dataset = AEGenerator(T, P, S, window_size=2048, stride=1)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=False) # n = 64
+        T = original_dataset.do_fg1_transition_matrix() # (95668, 3, 3)
+        P = original_dataset.do_fg2_payload() # (97715, 9)
+        S = original_dataset.do_fg3_statistics() # (95668, 3, 3)
+
+        with open(cache_path, 'wb') as f:
+            pickle.dump((T, P, S), f)
+
+    # 3. Make AEGenerator, DataLoader
+    dataset = AEGenerator(T, P, S, window_size=window_size, stride=stride)
+    dataloader = DataLoader(dataset, batch_size, shuffle=False) # batch_size = 64
 
     for x, _ in dataloader:
         t, p, s = x 
@@ -498,6 +504,6 @@ def get_processed_dataset(window_size=2048, stride=1, batch_size=64):
         assert t.shape[0] == p.shape[0] == s.shape[0], "T, P, S must have same number of samples!"
         break
 
-    return T, P, S, dataset, dataloader
+    return dataloader
 
 
