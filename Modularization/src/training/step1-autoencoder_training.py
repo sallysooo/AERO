@@ -9,58 +9,73 @@ from models.modeling import Autoencoder
 import torch
 import torch.nn.functional as F
 import torch.optim as optim 
-from utils.data_utils import get_processed_dataset
+from utils.data_utils import get_processed_dataloader
 from tqdm import tqdm
 
-dataloader = get_processed_dataset()
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+train_loader, val_loader = get_processed_dataloader()
+# train_loader, valid_loader, test_loader = get_processed_dataloader()
 
 model = Autoencoder().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
-best_loss = float('inf')
+
+# Early Stopping settings
+patience = 10
+best_val_loss = float('inf')
 best_model_path = None
+counter = 0
 
-epoch1 = 5 # 논문에서는 20이지만 일단 작은 수로 잘 돌아가는지 테스트
-for epoch in range(epoch1):
-    loss_AE = 0.0              # loss값 누적할 변수 초기화
-    pb = tqdm(dataloader, desc=f'{epoch=}')
+def train_one_epoch(model, dataloader, optimizer, device):
+    model.train()
+    total_loss = 0
+    pb = tqdm(dataloader, desc='Training')
     for x, _ in pb:
-        t, p, s = (item.to(device) for item in x) 
-
-        optimizer.zero_grad()       # 이전 배치에서 계산된 기울기 초기화
+        t, p, s = (item.to(device) for item in x)
+        optimizer.zero_grad()
         t_hat, p_hat, s_hat = model((t, p, s))
 
-        loss_t = F.mse_loss(t_hat, t, reduction='mean')  
-        loss_p = F.mse_loss(p_hat, p, reduction='mean')
-        loss_s = F.mse_loss(s_hat, s, reduction='mean')
-
-        loss = loss_t + loss_p + loss_s     
-
+        loss = F.mse_loss(t_hat, t) + F.mse_loss(p_hat, p) + F.mse_loss(s_hat, s)
         loss.backward() 
         optimizer.step() 
-        loss_AE += loss.item() # batch의 loss값을 누적해 epoch 전체 loss를 계산
 
-        pb.set_postfix(loss_t=loss_t.item(), loss_p=loss_p.item(), loss_s=loss_s.item(), loss_AE=loss_AE)
+        total_loss += loss.item()
+        pb.set_postfix(total_loss=total_loss)
+    return total_loss / len(dataloader)
 
-    cost = loss_AE / len(dataloader) # average loss 값 계산
-    print(f'Epoch {epoch+1}: avg loss = {cost:.6f}')
+def evaluate_on_val(model, dataloader, device):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for x, _ in dataloader:
+            t, p, s = (item.to(device) for item in x)
+            t_hat, p_hat, s_hat = model((t, p, s))
+            loss = F.mse_loss(t_hat, t) + F.mse_loss(p_hat, p) + F.mse_loss(s_hat, s)
+            total_loss += loss.item()
+    return total_loss / len(dataloader)
 
-    # Save every epoch
-    torch.save(model.state_dict(), f'{save_dir}/step1_autoencoder_epoch_{epoch+1}.pt')
-    
-    # Save best model
-    if cost < best_loss:
-        best_loss = cost
+
+
+epoch1 = 100 
+for epoch in range(epoch1):
+    train_loss = train_one_epoch(model, train_loader, optimizer, device)
+    val_loss = evaluate_on_val(model, val_loader, device)
+
+    print(f"Epoch {epoch+1} | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
+
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        counter = 0
         best_model_path = f'{save_dir}/step1_autoencoder_best_model.pt'
         torch.save({
             'epoch': epoch + 1,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'loss': cost,
+            'val_loss': val_loss,
         }, best_model_path)
-
-
-
-
+        print("Best model updated!")
+    else:
+        counter += 1
+        if counter >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break
 

@@ -1,0 +1,24 @@
+project_root/
+├── notebooks/
+│   └── trial2_Step1-Autoencoder_training.ipynb # the original whole jupyter notebook (before modularization)
+├── cache/                    # caches of 'concat_dataset' for each train/validation/test (AEGenerator)
+│   ├── train_ws2048_st1.pkl  
+│   ├── valid_ws2048_st1.pkl  
+│   └── test_ws2048_st1.pkl   # yet... memory's too big -> some logic revision may be needed for this problem.
+├── saved_models/
+│   └── step1_autoencoder_best_model.pt # the best model during step1 training
+├── src/
+│   ├── data/              # 데이터 로딩/전처리 코드 (yet)
+│   ├── dataset/           # dataset folder (raw)
+│   ├── models/            # 모델 클래스 definition 모음
+│   │   └── modeling.py    # encoder, decoder, SeparableConv1d, SeparableConvTranspose1d, autoencoder 클래스 정의    
+│   ├── training/          # Algorithm2 training steps
+│   │   ├── step1-autoencoder_training.py   # step1
+│   │   └── test.py        # checking the best model's result of step1
+│   ├── evaluation/        # 평가/추론 코드 모음 (yet)
+│   └── utils/             # 공통 함수, 설정 등
+│       └── data_utils.py  # 1. TimeSeriesGenerator / # 2. Load Dataset & FG1-3 / # 3. Create train/validation/test sets / # 4. AEGenerator(NEW) / 5. Generate DataLoader for train/validation/test
+├── tests/                 # (yet)
+├── algorithm2.py          # (yet)
+└── README.md
+

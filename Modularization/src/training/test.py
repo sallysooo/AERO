@@ -15,4 +15,4 @@ model = Autoencoder().to(device)
 checkpoint = torch.load(f'{save_dir}/step1_autoencoder_best_model.pt')
 model.load_state_dict(checkpoint['model_state_dict'])
 
-print(f"Best model from epoch {checkpoint['epoch']} with loss {checkpoint['loss']:.6f}")
+print(f"Best model from epoch {checkpoint['epoch']} with loss {checkpoint['val_loss']:.6f}")

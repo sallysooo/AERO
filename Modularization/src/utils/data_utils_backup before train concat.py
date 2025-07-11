@@ -95,7 +95,7 @@ class TimeseriesGenerator:
         return self.__str__()
 
 # 2. Load Dataset
-class PktDataset: # 기존의 Dataset 클래스명의 충돌 방지를 위해 PktDataset으로 이름 변경
+class PktDataset:
     def __init__(self, df: pd.DataFrame, trim_etc_protocols=True):
         if trim_etc_protocols:
             self.df = df[df['ProtocolType'] != ''].copy()
@@ -375,7 +375,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim 
 from torch.utils.data import Dataset as TorchDataset, DataLoader
-from torch.utils.data import ConcatDataset
+
 
 class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
     def __init__(self, T, P, S, window_size=2048, stride=1, sampling_rate=1, shuffle=False, reverse=False): 
@@ -467,70 +467,15 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         return self.__str__()
 
 
-# 5. Concat train/validation/test dataset and generate final dataloader for the model
 
-def get_cache_path(cache_dir, split_name, window_size=2048, stride=1):
+def get_processed_dataset(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
     os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{split_name}_ws{window_size}_st{stride}.pkl')
-
-def process_split(indices, split_name, window_size, stride, cache_dir):
-    cache_path = get_cache_path(cache_dir, split_name, window_size, stride) 
+    cache_path = os.path.join(cache_dir, f'dataset_ws{window_size}_st{stride}_bs{batch_size}.pkl')
 
     # 1. load cache
     if os.path.exists(cache_path):
-        print(f"[{split_name}] Loading from cache: {cache_path}")
         with open(cache_path, 'rb') as f:
-            concat_dataset = pickle.load(f)
-    else:
-        # 2. Extract sliding windows of (T, P, S) from each train/validation/test 
-        datasets = []
-
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        for arg in tqdm(args, desc=f'Loading args for {split_name}'):
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        for idx in tqdm(indices, desc=f'Creating AEGenerators for {split_name}'):
-            dataset = list_dataset_sub[idx]
-
-            print("    Generating T...")
-            T = dataset.do_fg1_transition_matrix()
-            print("    Generating P...")
-            P = dataset.do_fg2_payload()
-            print("    Generating S...")
-            S = dataset.do_fg3_statistics()
-
-            datasets.append(AEGenerator(T, P, S, window_size=window_size, stride=stride))
-        
-        concat_dataset = ConcatDataset(datasets)
-        # save cache
-        print(f"[{split_name}] Caching result to: {cache_path}")
-        with open(cache_path, 'wb') as f:
-            pickle.dump(concat_dataset, f)
-
-    return concat_dataset
-
-def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
-    splits = {'train': [0, 3], 'valid': [1, 4]}
-    dataloaders = {}
-    for split_name, indices in splits.items():
-        concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
-        
-        # shuffle = True if split_name == 'train' else False
-        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-        dataloaders[split_name] = dataloader
-    return dataloaders['train'], dataloaders['valid']
-
-
-# Trial n error versions...
-'''
-# initial ver.
-    # 1. load cache
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            T1, P1, S1, T2, P2, S2 = pickle.load(f)
+            T, P, S = pickle.load(f)
     else:
         # 2. When cache doesn't exists
         list_output = list()
@@ -540,25 +485,18 @@ def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_di
             list_output.append(output)
             list_dataset_sub.append(dataset_sub)
 
-        train1 = list_dataset_sub[0] # 'train' part in dataset_train
-        train2 = list_dataset_sub[3] # 'train' part in dataset_test
-        
-        T1 = train1.do_fg1_transition_matrix() # (95668, 3, 3)
-        P1 = train1.do_fg2_payload() # (97715, 9)
-        S1 = train1.do_fg3_statistics() # (95668, 3, 3)
+        original_dataset = list_dataset_sub[0] # 'train' part in dataset_train
 
-        T2 = train2.do_fg1_transition_matrix() # (95668, 3, 3)
-        P2 = train2.do_fg2_payload() # (97715, 9)
-        S2 = train2.do_fg3_statistics() # (95668, 3, 3)
+        T = original_dataset.do_fg1_transition_matrix() # (95668, 3, 3)
+        P = original_dataset.do_fg2_payload() # (97715, 9)
+        S = original_dataset.do_fg3_statistics() # (95668, 3, 3)
 
         with open(cache_path, 'wb') as f:
-            pickle.dump((T1, P1, S1, T2, P2, S2), f)
+            pickle.dump((T, P, S), f)
 
     # 3. Make AEGenerator, DataLoader
-    dataset1 = AEGenerator(T1, P1, S1, window_size=window_size, stride=stride)
-    dataset2 = AEGenerator(T2, P2, S2, window_size=window_size, stride=stride)
-    train_dataset = ConcatDataset([dataset1, dataset2])
-    dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False) # batch_size = 64
+    dataset = AEGenerator(T, P, S, window_size=window_size, stride=stride)
+    dataloader = DataLoader(dataset, batch_size, shuffle=False) # batch_size = 64
 
     for x, _ in dataloader:
         t, p, s = x 
@@ -568,118 +506,4 @@ def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_di
 
     return dataloader
 
-'''
 
-'''
-# trial ver.2
-def get_cache_path(cache_dir, split_name, window_size=2048, stride=1):
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{split_name}_ws{window_size}_st{stride}.pkl')
-
-def process_split(indices, split_name, window_size, stride, cache_dir):
-    cache_path = get_cache_path(cache_dir, split_name, window_size, stride) 
-
-    # 1. load cache
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            T_list, P_list, S_list = pickle.load(f)
-    else:
-        # 2. Extract T, P, S from each split
-        T_list, P_list, S_list = [], [], []
-
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        
-        for arg in args:
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        for idx in indices:
-            dataset = list_dataset_sub[idx]
-
-            T = dataset.do_fg1_transition_matrix()
-            P = dataset.do_fg2_payload()
-            S = dataset.do_fg3_statistics()
-
-            T_list.append(T)
-            P_list.append(P)
-            S_list.append(S)
-        # save cache
-        with open(cache_path, 'wb') as f:
-            pickle.dump((T_list, P_list, S_list), f)
-    return T_list, P_list, S_list
-
-
-
-def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
-    splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
-    dataloaders = {}
-    for split_name, indices in splits.items():
-        T_list, P_list, S_list = process_split(indices, split_name, window_size, stride, cache_dir)
-        
-        # it shouldn't be like this... AEGenerator must be made for each T1, T2, not for the concated whole T like current code.
-        datasets = [AEGenerator(T, P, S, window_size=window_size, stride=stride) for T, P, S in zip(T_list, P_list, S_list)]
-        
-        concat_dataset = ConcatDataset(datasets)
-        # shuffle = True if split_name == 'train' else False
-        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False)
-        dataloaders[split_name] = dataloader
-    return dataloaders['train'], dataloaders['valid'], dataloaders['test']
-
-
-'''
-
-'''
-# trial ver.3
-
-def get_cache_path(cache_dir, split_name, window_size=2048, stride=1):
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{split_name}_ws{window_size}_st{stride}.pkl')
-
-def process_split(indices, split_name, window_size, stride, cache_dir):
-    cache_path = get_cache_path(cache_dir, split_name, window_size, stride) 
-
-    # 1. load cache
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            concat_dataset = pickle.load(f)
-    else:
-        # 2. Extract sliding windows of (T, P, S) from each train/validation/test 
-        datasets = []
-
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        for arg in args:
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        for idx in indices:
-            dataset = list_dataset_sub[idx]
-
-            T = dataset.do_fg1_transition_matrix()
-            P = dataset.do_fg2_payload()
-            S = dataset.do_fg3_statistics()
-
-            datasets.append(AEGenerator(T, P, S, window_size=window_size, stride=stride))
-        
-        concat_dataset = ConcatDataset(datasets)
-        # save cache
-        with open(cache_path, 'wb') as f:
-            pickle.dump(concat_dataset, f)
-    return concat_dataset
-
-def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
-    splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
-    dataloaders = {}
-    for split_name, indices in splits.items():
-        concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
-        
-        # shuffle = True if split_name == 'train' else False
-        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False)
-        dataloaders[split_name] = dataloader
-    return dataloaders['train'], dataloaders['valid'], dataloaders['test']
-
-
-'''
