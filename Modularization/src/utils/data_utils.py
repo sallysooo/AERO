@@ -10,6 +10,7 @@ from tqdm import tqdm
 from scipy.stats import skew
 
 import os
+from pathlib import Path
 import pickle
 
 # 현재 파일(data_utils.py)의 위치를 기준으로 dataset 폴더의 절대 경로를 계산
@@ -463,223 +464,81 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
     def __str__(self):
         return f'<AEGenerator num_samples={self.num_samples} / output_shape={self.output_shape}>'
 
-    def __reper__(self):
+    def __repr__(self):
         return self.__str__()
+
 
 
 # 5. Concat train/validation/test dataset and generate final dataloader for the model
 
-def get_cache_path(cache_dir, split_name, window_size=2048, stride=1):
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{split_name}_ws{window_size}_st{stride}.pkl')
+# return paths to the caches T, P, S files for a given dataset index.
+def get_cache_paths(cache_dir, split_name, idx, window_size=2048, stride=1):
+    base = Path(cache_dir) / split_name
+    base.mkdir(parents=True, exist_ok=True)
+    t_path = base / f'T_idx[{idx}]_ws{window_size}_st{stride}.pkl'
+    p_path = base / f'P_idx[{idx}]_ws{window_size}_st{stride}.pkl'
+    s_path = base / f'S_idx[{idx}]_ws{window_size}_st{stride}.pkl'
+    return t_path, p_path, s_path
+
 
 def process_split(indices, split_name, window_size, stride, cache_dir):
-    cache_path = get_cache_path(cache_dir, split_name, window_size, stride) 
+    datasets = []
+    # 1. load data
+    list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
+    for arg in tqdm(args, desc=f'Loading args for {split_name}'):
+        _, dataset_sub = do(*arg)
+        list_dataset_sub.append(dataset_sub)
+    
 
-    # 1. load cache
-    if os.path.exists(cache_path):
-        print(f"[{split_name}] Loading from cache: {cache_path}")
-        with open(cache_path, 'rb') as f:
-            concat_dataset = pickle.load(f)
-    else:
-        # 2. Extract sliding windows of (T, P, S) from each train/validation/test 
-        datasets = []
+    for idx in tqdm(indices, desc=f'Creating AEGenerators for {split_name} indices'):
+        dataset = list_dataset_sub[idx]
+        t_path, p_path, s_path = get_cache_paths(cache_dir, split_name, idx, window_size, stride) 
 
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        for arg in tqdm(args, desc=f'Loading args for {split_name}'):
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        for idx in tqdm(indices, desc=f'Creating AEGenerators for {split_name}'):
-            dataset = list_dataset_sub[idx]
-
-            print("    Generating T...")
+        # Load or compute T
+        if t_path.exists():
+            with t_path.open('rb') as f:
+                T = pickle.load(f)
+        else:
+            print(f"    Generating T for idx={idx}...")
             T = dataset.do_fg1_transition_matrix()
-            print("    Generating P...")
+            with t_path.open('wb') as f:
+                pickle.dump(T, f)
+            
+        # Load or compute P
+        if p_path.exists():
+            with p_path.open('rb') as f:
+                P = pickle.load(f)
+        else:
+            print(f"    Generating P for idx={idx}...")
             P = dataset.do_fg2_payload()
-            print("    Generating S...")
+            with p_path.open('wb') as f:
+                pickle.dump(P, f)
+
+        # Load or compute S
+        if s_path.exists():
+            with s_path.open('rb') as f:
+                S = pickle.load(f)
+        else:
+            print(f"    Generating S for idx={idx}...")
             S = dataset.do_fg3_statistics()
+            with s_path.open('wb') as f:
+                pickle.dump(S, f)
 
-            datasets.append(AEGenerator(T, P, S, window_size=window_size, stride=stride))
-        
-        concat_dataset = ConcatDataset(datasets)
-        # save cache
-        print(f"[{split_name}] Caching result to: {cache_path}")
-        with open(cache_path, 'wb') as f:
-            pickle.dump(concat_dataset, f)
+        datasets.append(AEGenerator(T, P, S, window_size=window_size, stride=stride))
+    
+    return ConcatDataset(datasets)
 
-    return concat_dataset
+
 
 def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
-    splits = {'train': [0, 3], 'valid': [1, 4]}
+    splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
     dataloaders = {}
     for split_name, indices in splits.items():
         concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
         
-        # shuffle = True if split_name == 'train' else False
+        # Q. shuffle = True if split_name == 'train' else False ??
         dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
         dataloaders[split_name] = dataloader
-    return dataloaders['train'], dataloaders['valid']
-
-
-# Trial n error versions...
-'''
-# initial ver.
-    # 1. load cache
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            T1, P1, S1, T2, P2, S2 = pickle.load(f)
-    else:
-        # 2. When cache doesn't exists
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        for arg in args:
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        train1 = list_dataset_sub[0] # 'train' part in dataset_train
-        train2 = list_dataset_sub[3] # 'train' part in dataset_test
-        
-        T1 = train1.do_fg1_transition_matrix() # (95668, 3, 3)
-        P1 = train1.do_fg2_payload() # (97715, 9)
-        S1 = train1.do_fg3_statistics() # (95668, 3, 3)
-
-        T2 = train2.do_fg1_transition_matrix() # (95668, 3, 3)
-        P2 = train2.do_fg2_payload() # (97715, 9)
-        S2 = train2.do_fg3_statistics() # (95668, 3, 3)
-
-        with open(cache_path, 'wb') as f:
-            pickle.dump((T1, P1, S1, T2, P2, S2), f)
-
-    # 3. Make AEGenerator, DataLoader
-    dataset1 = AEGenerator(T1, P1, S1, window_size=window_size, stride=stride)
-    dataset2 = AEGenerator(T2, P2, S2, window_size=window_size, stride=stride)
-    train_dataset = ConcatDataset([dataset1, dataset2])
-    dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False) # batch_size = 64
-
-    for x, _ in dataloader:
-        t, p, s = x 
-        # t : (64, 9) | p : (64, 2048, 9) | s : (64, 9)
-        assert t.shape[0] == p.shape[0] == s.shape[0], "T, P, S must have same number of samples!"
-        break
-
-    return dataloader
-
-'''
-
-'''
-# trial ver.2
-def get_cache_path(cache_dir, split_name, window_size=2048, stride=1):
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{split_name}_ws{window_size}_st{stride}.pkl')
-
-def process_split(indices, split_name, window_size, stride, cache_dir):
-    cache_path = get_cache_path(cache_dir, split_name, window_size, stride) 
-
-    # 1. load cache
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            T_list, P_list, S_list = pickle.load(f)
-    else:
-        # 2. Extract T, P, S from each split
-        T_list, P_list, S_list = [], [], []
-
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        
-        for arg in args:
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        for idx in indices:
-            dataset = list_dataset_sub[idx]
-
-            T = dataset.do_fg1_transition_matrix()
-            P = dataset.do_fg2_payload()
-            S = dataset.do_fg3_statistics()
-
-            T_list.append(T)
-            P_list.append(P)
-            S_list.append(S)
-        # save cache
-        with open(cache_path, 'wb') as f:
-            pickle.dump((T_list, P_list, S_list), f)
-    return T_list, P_list, S_list
-
-
-
-def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
-    splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
-    dataloaders = {}
-    for split_name, indices in splits.items():
-        T_list, P_list, S_list = process_split(indices, split_name, window_size, stride, cache_dir)
-        
-        # it shouldn't be like this... AEGenerator must be made for each T1, T2, not for the concated whole T like current code.
-        datasets = [AEGenerator(T, P, S, window_size=window_size, stride=stride) for T, P, S in zip(T_list, P_list, S_list)]
-        
-        concat_dataset = ConcatDataset(datasets)
-        # shuffle = True if split_name == 'train' else False
-        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False)
-        dataloaders[split_name] = dataloader
     return dataloaders['train'], dataloaders['valid'], dataloaders['test']
 
 
-'''
-
-'''
-# trial ver.3
-
-def get_cache_path(cache_dir, split_name, window_size=2048, stride=1):
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{split_name}_ws{window_size}_st{stride}.pkl')
-
-def process_split(indices, split_name, window_size, stride, cache_dir):
-    cache_path = get_cache_path(cache_dir, split_name, window_size, stride) 
-
-    # 1. load cache
-    if os.path.exists(cache_path):
-        with open(cache_path, 'rb') as f:
-            concat_dataset = pickle.load(f)
-    else:
-        # 2. Extract sliding windows of (T, P, S) from each train/validation/test 
-        datasets = []
-
-        list_output = list()
-        list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
-        for arg in args:
-            output, dataset_sub = do(*arg)
-            list_output.append(output)
-            list_dataset_sub.append(dataset_sub)
-
-        for idx in indices:
-            dataset = list_dataset_sub[idx]
-
-            T = dataset.do_fg1_transition_matrix()
-            P = dataset.do_fg2_payload()
-            S = dataset.do_fg3_statistics()
-
-            datasets.append(AEGenerator(T, P, S, window_size=window_size, stride=stride))
-        
-        concat_dataset = ConcatDataset(datasets)
-        # save cache
-        with open(cache_path, 'wb') as f:
-            pickle.dump(concat_dataset, f)
-    return concat_dataset
-
-def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
-    splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
-    dataloaders = {}
-    for split_name, indices in splits.items():
-        concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
-        
-        # shuffle = True if split_name == 'train' else False
-        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False)
-        dataloaders[split_name] = dataloader
-    return dataloaders['train'], dataloaders['valid'], dataloaders['test']
-
-
-'''

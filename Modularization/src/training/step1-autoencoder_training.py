@@ -13,8 +13,7 @@ from utils.data_utils import get_processed_dataloader
 from tqdm import tqdm
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-train_loader, val_loader = get_processed_dataloader()
-# train_loader, valid_loader, test_loader = get_processed_dataloader()
+train_loader, val_loader, test_loader = get_processed_dataloader()
 
 model = Autoencoder().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -55,7 +54,7 @@ def evaluate_on_val(model, dataloader, device):
 
 
 
-epoch1 = 100 
+epoch1 = 100
 for epoch in range(epoch1):
     train_loss = train_one_epoch(model, train_loader, optimizer, device)
     val_loss = evaluate_on_val(model, val_loader, device)
