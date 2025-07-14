@@ -11,6 +11,9 @@ import torch.nn.functional as F
 import torch.optim as optim 
 from utils.data_utils import get_processed_dataloader
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_fscore_support
+import numpy as np
+import matplotlib as plt
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, test_loader = get_processed_dataloader()
@@ -48,13 +51,14 @@ def evaluate_on_val(model, dataloader, device):
         for x, _ in dataloader:
             t, p, s = (item.to(device) for item in x)
             t_hat, p_hat, s_hat = model((t, p, s))
+            
             loss = F.mse_loss(t_hat, t) + F.mse_loss(p_hat, p) + F.mse_loss(s_hat, s)
+            
             total_loss += loss.item()
     return total_loss / len(dataloader)
 
 
-
-epoch1 = 100
+epoch1 = 2
 for epoch in range(epoch1):
     train_loss = train_one_epoch(model, train_loader, optimizer, device)
     val_loss = evaluate_on_val(model, val_loader, device)
@@ -77,4 +81,5 @@ for epoch in range(epoch1):
         if counter >= patience:
             print(f"Early stopping at epoch {epoch+1}")
             break
+
 
