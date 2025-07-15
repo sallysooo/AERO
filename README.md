@@ -2,7 +2,7 @@
 AERO : Automotive Ethernet Real-Time Observer for Anomaly Detection in In-Vehicle Networks
 
 ```
-Modularization/
+project_root/
 ├── notebooks/
 │   └── trial2_Step1-Autoencoder_training.ipynb # the original whole jupyter notebook (before modularization)
 ├── cache/                    # caches of T, P, S calculation results for each train/validation/test dataset 
@@ -17,15 +17,19 @@ Modularization/
 │   │   └── ...
 │   │
 ├── saved_models/
-│   └── step1_autoencoder_best_model.pt # the best model during step1 training
+│   ├── step1_autoencoder_best_model.pt   # the best entire model from step1 
+│   ├── step1_best_model_encoder.pt       # the best model's encoder from step1
+│   └── step2_best_model_point_mapper.pt  # the best pointmapper model from step2
+│
 ├── src/
 │   ├── data/              # 데이터 로딩/전처리 코드 (yet)
 │   ├── dataset/           # dataset folder (raw)
 │   ├── models/            # 모델 클래스 definition 모음
 │   │   └── modeling.py    # encoder, decoder, SeparableConv1d, SeparableConvTranspose1d, autoencoder 클래스 정의    
 │   ├── training/          # Algorithm2 training steps
-│   │   ├── step1-autoencoder_training.py   # step1
-│   │   ├── step1-evaluate_metrics.py
+│   │   ├── step1-autoencoder_training.py   # step1 : training
+│   │   ├── step1-evaluate_metrics.py       # step1 : evaluation
+│   │   ├── step2-pointmapper_training.py   # step2 : training
 │   │   └── test.py        # checking the best model's result of step1
 │   ├── evaluation/        # 평가/추론 코드 모음 (yet)
 │   └── utils/             # 공통 함수, 설정 등
