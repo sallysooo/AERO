@@ -6,9 +6,10 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_fscore_support
-import matplotlib as plt
+import matplotlib.pyplot as plt
 from models.modeling import Autoencoder
 from utils.data_utils import get_processed_dataloader
+from tqdm import tqdm
 
 best_model_path = './saved_models/step1_autoencoder_best_model.pt'
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -20,27 +21,36 @@ checkpoint = torch.load(best_model_path, map_location=device)
 model.load_state_dict(checkpoint['model_state_dict'])
 
 
+
 def compute_reconstruction_error(model, dataloader, device):
+
     model.eval()
-    errors = []
-    labels = []
+    all_errors = []
+
     with torch.no_grad():
-        for x, y in dataloader:
-            t, p, s = (item.to(device) for item in x)
-            t_hat, p_hat, s_hat = model((t, p, s))
+        for x, _ in tqdm(dataloader, desc="Evaluating"):
+            try:
+                inputs = [item.to(device) for item in x]
+                outputs = model(tuple(inputs))
 
-            # MSE reconstruction error per sample
+                batch_errors = []
+                for inp, out in zip(inputs, outputs):
+                    err = F.mse_loss(out, inp, reduction='none')\
+                        .reshape(inp.size(0), -1).mean(dim=1)
+                    batch_errors.append(err)
 
-            batch_error = (
-                F.mse_loss(t_hat, t, reduction='none').mean(dim=1) + # [batch_size, feature_dim] -> [batch_size] : get 1 error per 1 sample
-                F.mse_loss(p_hat, p, reduction='none').mean(dim=1) +
-                F.mse_loss(s_hat, s, reduction='none').mean(dim=1)
-            )
-            errors.extend(batch_error.detach().cpu().tolist())
-            labels.extend(y.detach().cpu().tolist())
-    return np.array(errors), np.array(labels)
+                total_error = torch.stack(batch_errors, dim=1).sum(dim=1)
+                all_errors.append(total_error.cpu())
+
+            except Exception as e:
+                print(f"[!] Error during batch evaluation: {e}")
+                continue
+
+    all_errors = torch.cat(all_errors).numpy()
+    return all_errors
 
 
+    
 # ROC/AUC, Precision, Recall, F1-score evaluation function
 def evaluate_performance(errors, labels):
     # ROC/AUC
@@ -72,7 +82,18 @@ def evaluate_performance(errors, labels):
 print(f"Best model from epoch {checkpoint['epoch']} with val_loss {checkpoint['val_loss']:.6f}")
 
 # start evaluation
-errors, labels = compute_reconstruction_error(model, test_loader, device)
+# errors, labels = compute_reconstruction_error(model, test_loader, device)
+errors = compute_reconstruction_error(model, test_loader, device)
+plt.hist(errors, bins=100)
+plt.title("Reconstruction Error Distribution")
+plt.xlabel("Error")
+plt.ylabel("Count")
+plt.grid()
+plt.show()
+
+
+
+'''
 metrics = evaluate_performance(errors, labels)
 
 # 결과 출력
@@ -92,3 +113,8 @@ plt.title("ROC Curve")
 plt.legend()
 plt.grid()
 plt.show()
+
+
+'''
+
+

@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim 
 import math
 
 
@@ -152,7 +151,7 @@ class Decoder(nn.Module):
 
         return t, p, s
 
-
+# Step 1
 class Autoencoder(nn.Module):
     def __init__(self, window_size=2048):
         super(Autoencoder, self).__init__()
@@ -163,8 +162,27 @@ class Autoencoder(nn.Module):
         h = self.encoder(x)
         return self.decoder(h)
 
+    def get_encoder(self):
+        return self.encoder
 
 
+# Step 2
+class PointMapper(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(704, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, 32)
+        self.fc5 = nn.Linear(32, 16)
 
+    def forward(self, h):        # (b, 704) : h
+        x = F.relu(self.fc1(h))  # (b, 256)
+        x = F.relu(self.fc2(x))  # (b, 128)
+        x = F.relu(self.fc3(x))  # (b, 64)
+        x = F.relu(self.fc4(x))  # (b, 32)
+        m = x = self.fc5(x)  # (b, 16)
+
+        return m
 
 
