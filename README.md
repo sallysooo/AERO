@@ -18,8 +18,8 @@ project_root/
 │   │
 ├── saved_models/
 │   ├── step1_autoencoder_best_model.pt   # the best entire model from step1 
-│   ├── step1_best_model_encoder.pt       # the best model's encoder from step1
-│   └── step2_best_model_point_mapper.pt  # the best pointmapper model from step2
+│   ├── step1_best_model_encoder_42.pt       # the best model's encoder from step1
+│   └── step2_best_model_point_mapper_42.pt  # the best pointmapper model from step2
 │
 ├── src/
 │   ├── data/              # 데이터 로딩/전처리 코드 (yet)
@@ -33,7 +33,7 @@ project_root/
 │   │   └── test.py        # checking the best model's result of step1
 │   ├── evaluation/        # 평가/추론 코드 모음 (yet)
 │   └── utils/             # 공통 함수, 설정 등
-│       └── data_utils.py  # 1. TimeSeriesGenerator / # 2. Load Dataset & FG1-3 / # 3. Create train/validation/test sets / # 4. AEGenerator(NEW) / 5. Generate DataLoader for train/validation/test
+│       └── data_utils.py  # 0. Seed / 1. TimeSeriesGenerator / # 2. Load Dataset & FG1-3 / # 3. Create train/validation/test sets / # 4. AEGenerator(NEW) / 5. Generate DataLoader for train/validation/test
 │   
 ├── tests/                 # (yet)
 ├── algorithm2.py          # (yet)

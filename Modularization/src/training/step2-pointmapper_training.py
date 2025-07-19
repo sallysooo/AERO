@@ -1,31 +1,48 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from pathlib import Path
 
-save_dir = './saved_models'
-os.makedirs(save_dir, exist_ok=True)
+# path setting
+BASE_DIR = Path(__file__).resolve().parent.parent.parent # LAB/Modularization/
+SAVE_DIR = BASE_DIR / 'saved_models'
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
-from models.modeling import Encoder, PointMapper
+sys.path.append(str(BASE_DIR / 'src')) # for module import
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim 
-from utils.data_utils import get_processed_dataloader
 from tqdm import tqdm
+from models.modeling import Encoder, PointMapper
+from utils.data_utils import seed_everything, get_processed_dataloader
+import wandb
+
+seed = 42
+seed_everything(seed)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, _ = get_processed_dataloader()
 
+
+# model setting w/ wandb init
 point_mapper = PointMapper().to(device)
 optimizer = optim.Adam(point_mapper.parameters(), lr=1e-5)
 
-# Early Stopping settings
-patience = 10
-best_val_loss = float('inf')
-best_model_path = None
-counter = 0
+wandb.init(
+    project="AERO",
+    name=f"step2_pointmapper_seed{seed}",
+    config={
+        "epochs": 100,
+        "batch_size": train_loader.batch_size,
+        "lr": 1e-5,
+        "model": "PointMapper",
+        "optimizer": "Adam"
+    }
+)
+
 
 encoder = Encoder(window_size=2048)
-checkpoint = torch.load(f'{save_dir}/step1_best_model_encoder.pt')
+checkpoint = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
 encoder.load_state_dict(checkpoint['encoder_state_dict'])
 encoder.to(device)
 encoder.eval() 
@@ -58,7 +75,6 @@ def train_one_epoch(model, dataloader, optimizer, device):
 
         total_loss += loss.item()
         pb.set_postfix(total_loss=total_loss)
-        break
 
     return total_loss / len(dataloader)
 
@@ -83,24 +99,37 @@ def evaluate_on_val(model, dataloader, device):
     return total_loss / len(val_loader)
 
 
+# Early Stopping settings
+patience = 10
+best_val_loss = float('inf')
+best_model_path = None
+counter = 0
 
-epoch2 = 2
+epoch2 = 10
 for epoch in range(epoch2):
     train_loss = train_one_epoch(point_mapper, train_loader, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, device)
 
     print(f"Epoch {epoch+1} | Train Loss: {train_loss:.10f} | Val Loss: {val_loss:.10f}")
 
+    wandb.log({
+        "epoch": epoch + 1,
+        "train_loss": train_loss,
+        "val_loss": val_loss
+    })
+
     # Early stopping logic
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         counter = 0
-        point_mapper_model_path = f'{save_dir}/step2_best_model_point_mapper.pt'
+        point_mapper_model_path = SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt'
         torch.save({
             'epoch': epoch + 1,
             'point_mapper_state_dict': point_mapper.state_dict(), 
             'val_loss': val_loss,
         }, point_mapper_model_path)
+
+        wandb.save(str(point_mapper_model_path))
         print("Best model updated!")
     else:
         counter += 1
@@ -108,3 +137,4 @@ for epoch in range(epoch2):
             print(f"Early stopping at epoch {epoch+1}")
             break
 
+wandb.finish()

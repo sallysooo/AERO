@@ -17,6 +17,16 @@ import pickle
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATASET_DIR = BASE_DIR / 'dataset'
 
+# 0. Seed setting
+def seed_everything(seed=42):
+    import random, numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False 
 
 # 1. TimeSeriesGenerator
 class TimeseriesGenerator:
@@ -536,8 +546,8 @@ def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_di
     for split_name, indices in splits.items():
         concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
         
-        # Q. shuffle = True if split_name == 'train' else False ??
-        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        # drop_last = False (default) : By default, PyTorch DataLoader divides the entire data into the specified batch_size and includes the remaining data in the last batch.
+        dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
         dataloaders[split_name] = dataloader
     return dataloaders['train'], dataloaders['valid'], dataloaders['test']
 

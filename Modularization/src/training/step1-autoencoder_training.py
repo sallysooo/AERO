@@ -1,28 +1,44 @@
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from pathlib import Path
 
-save_dir = './saved_models'
-os.makedirs(save_dir, exist_ok=True)
+# path setting
+BASE_DIR = Path(__file__).resolve().parent.parent.parent # LAB/Modularization/
+SAVE_DIR = BASE_DIR / 'saved_models'
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
-from models.modeling import Autoencoder
+sys.path.append(str(BASE_DIR / 'src')) # for module import
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim 
-from utils.data_utils import get_processed_dataloader
 from tqdm import tqdm
+from models.modeling import Autoencoder
+from utils.data_utils import seed_everything, get_processed_dataloader
+import wandb
+
+seed = 42
+seed_everything(seed)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, _ = get_processed_dataloader()
 
+# model setting w/ wandb init
 model = Autoencoder().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-# Early Stopping settings
-patience = 10
-best_val_loss = float('inf')
-best_model_path = None
-counter = 0
+wandb.init(
+    project="AERO",
+    name=f"step1_autoencoder_seed{seed}",
+    config={
+        "epochs": 100,
+        "batch_size": train_loader.batch_size,
+        "lr": 1e-4,
+        "model": "Autoencoder",
+        "optimizer": "Adam"
+    }
+)
+
 
 def train_one_epoch(model, dataloader, optimizer, device):
     model.train()
@@ -57,6 +73,13 @@ def evaluate_on_val(model, dataloader, device):
     return total_loss / len(dataloader)
 
 
+
+# Early Stopping settings
+patience = 10
+best_val_loss = float('inf')
+best_model_path = None
+counter = 0
+
 epoch1 = 100
 for epoch in range(epoch1):
     train_loss = train_one_epoch(model, train_loader, optimizer, device)
@@ -67,13 +90,15 @@ for epoch in range(epoch1):
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         counter = 0
-        encoder_model_path = f'{save_dir}/step1_best_model_encoder.pt'
+        encoder_model_path = SAVE_DIR / f'step1_best_model_encoder_{seed}.pt'
         encoder = model.get_encoder()
         torch.save({
             'epoch': epoch + 1,
             'encoder_state_dict': encoder.state_dict(), # save the trained encoder only (discard decoder)
             'val_loss': val_loss,
         }, encoder_model_path)
+
+        wandb.save(str(encoder_model_path))
         print("Best model updated!")
     else:
         counter += 1
@@ -81,30 +106,3 @@ for epoch in range(epoch1):
             print(f"Early stopping at epoch {epoch+1}")
             break
 
-
-'''
-epoch1 = 100
-for epoch in range(epoch1):
-    train_loss = train_one_epoch(model, train_loader, optimizer, device)
-    val_loss = evaluate_on_val(model, val_loader, device)
-
-    print(f"Epoch {epoch+1} | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
-
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        counter = 0
-        best_model_path = f'{save_dir}/step1_autoencoder_best_model.pt'
-        torch.save({
-            'epoch': epoch + 1,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'val_loss': val_loss,
-        }, best_model_path)
-        print("Best model updated!")
-    else:
-        counter += 1
-        if counter >= patience:
-            print(f"Early stopping at epoch {epoch+1}")
-            break
-
-'''
