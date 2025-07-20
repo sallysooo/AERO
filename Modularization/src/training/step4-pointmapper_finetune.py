@@ -9,8 +9,8 @@ SAVE_DIR.mkdir(parents=True, exist_ok=True)
 sys.path.append(str(BASE_DIR / 'src')) # for module import
 
 import torch
-import torch.optim as optim 
 from tqdm import tqdm
+import torch.optim as optim 
 from models.modeling import Encoder, PointMapper
 from utils.data_utils import seed_everything, get_processed_dataloader
 import wandb
@@ -21,38 +21,50 @@ seed_everything(seed)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, _ = get_processed_dataloader()
 
-# model setting w/ wandb init
-point_mapper = PointMapper().to(device)
+# 1. Load pretrained Encoder
+encoder = Encoder(window_size=2048)
+checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
+encoder.load_state_dict(checkpoint1['encoder_state_dict'])
+encoder.to(device)
+encoder.eval() 
+
+# 2. Load pretrained PointMapper
+point_mapper = PointMapper()
+checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt')
+point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
+point_mapper.to(device)
+point_mapper.eval() 
+
+# 3. Load critertion point a 
+a = torch.load(SAVE_DIR / f"step3_criterion_point_a_{seed}.pt").to(device)
+
+# 4. Freeze encoder
+for param in encoder.parameters():
+    param.requires_grad = False
+
+# 5. Optimizer for fine-tuning point mapper
 optimizer = optim.Adam(point_mapper.parameters(), lr=1e-5)
 
+# wandb init
 wandb.init(
     project="AERO",
-    name=f"step2_pointmapper_seed{seed}",
+    name=f"step4_pointmapper_finetune_seed{seed}",
     config={
-        "epochs": 100,
+        "epochs": 1000,
         "batch_size": train_loader.batch_size,
         "lr": 1e-5,
-        "model": "PointMapper",
+        "model": "Pointmapper",
         "optimizer": "Adam"
     }
 )
 
 
-encoder = Encoder(window_size=2048)
-checkpoint = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
-encoder.load_state_dict(checkpoint['encoder_state_dict'])
-encoder.to(device)
-encoder.eval() 
-
-# Freeze encoder
-for param in encoder.parameters():
-    param.requires_grad = False
-
-def train_one_epoch(model, dataloader, optimizer, device):
+# ==== Training ====
+def train_one_epoch(model, dataloader, encoder, criterion_point, optimizer, device):
     model.train()
     total_loss = 0
 
-    pb = tqdm(dataloader, desc='PM Training')
+    pb = tqdm(dataloader, desc='Fine-Tuning PM')
     for batch, _ in pb:
         t, p, s = batch
         t, p, s = t.to(device), p.to(device), s.to(device)
@@ -60,11 +72,8 @@ def train_one_epoch(model, dataloader, optimizer, device):
         with torch.no_grad():
             h = encoder((t, p, s)) # (b, 704) : extract h from the previously trained encoder
         
-        m = model(h)        # (b ,16)
-        m_bar = m.mean(dim=0, keepdim=True) # (1, 16) : Column-wise mean of M
-
-        # formula (3) : L_Pre = sum(||m_i - m_bar||^2)
-        loss = ((m - m_bar)**2).sum() # (b, 16)
+        m = model(h)               # (b, d_m)
+        loss = ((m - criterion_point)**2).sum() # L_M using fixed a
 
         optimizer.zero_grad()
         loss.backward()
@@ -76,20 +85,20 @@ def train_one_epoch(model, dataloader, optimizer, device):
     return total_loss / len(dataloader)
 
 
-def evaluate_on_val(model, dataloader, device):
-    # ==== Validation ====
+# ==== Validation ====
+def evaluate_on_val(model, dataloader, encoder, criterion_point, device):
     model.eval()
     total_loss = 0
+
     with torch.no_grad():
-        pb = tqdm(dataloader, desc='PM Validation')
+        pb = tqdm(dataloader, desc='Validation')
         for batch, _ in pb:
             t, p, s = batch
             t, p, s = t.to(device), p.to(device), s.to(device)
 
             h = encoder((t, p, s))
             m = model(h)
-            m_bar = m.mean(dim=0, keepdim=True)
-            loss = ((m - m_bar)**2).sum()
+            loss = ((m - criterion_point)**2).sum()
             total_loss += loss.item()
             pb.set_postfix(total_loss=total_loss)
 
@@ -101,10 +110,10 @@ patience = 10
 best_val_loss = float('inf')
 counter = 0
 
-epoch2 = 10
-for epoch in range(epoch2):
-    train_loss = train_one_epoch(point_mapper, train_loader, optimizer, device)
-    val_loss = evaluate_on_val(point_mapper, val_loader, device)
+epoch3 = 1000 # plan) let's try 1000 for this
+for epoch in range(epoch3):
+    train_loss = train_one_epoch(point_mapper, train_loader, encoder, a, optimizer, device)
+    val_loss = evaluate_on_val(point_mapper, val_loader, encoder, a, device)
 
     print(f"Epoch {epoch+1} | Train Loss: {train_loss:.10f} | Val Loss: {val_loss:.10f}")
 
@@ -118,14 +127,14 @@ for epoch in range(epoch2):
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         counter = 0
-        point_mapper_model_path = SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt'
+        save_path = SAVE_DIR / f'step4_finetuned_point_mapper_{seed}.pt'
         torch.save({
             'epoch': epoch + 1,
             'point_mapper_state_dict': point_mapper.state_dict(), 
             'val_loss': val_loss,
-        }, point_mapper_model_path)
+        }, save_path)
 
-        wandb.save(str(point_mapper_model_path))
+        wandb.save(str(save_path))
         print("Best model updated!")
     else:
         counter += 1

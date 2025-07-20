@@ -1,5 +1,4 @@
 import sys
-import os
 from pathlib import Path
 
 # path setting
@@ -17,9 +16,9 @@ from models.modeling import Autoencoder
 from utils.data_utils import seed_everything, get_processed_dataloader
 import wandb
 
+# Configuration
 seed = 42
 seed_everything(seed)
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, _ = get_processed_dataloader()
 
@@ -77,7 +76,6 @@ def evaluate_on_val(model, dataloader, device):
 # Early Stopping settings
 patience = 10
 best_val_loss = float('inf')
-best_model_path = None
 counter = 0
 
 epoch1 = 100
