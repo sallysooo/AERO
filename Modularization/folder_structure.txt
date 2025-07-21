@@ -18,13 +18,15 @@ Modularization/
 │   ├── step2_best_model_point_mapper_42.pt      # the best pointmapper model from step2
 │   ├── step3_criterion_point_a_42.pt            # the criterion point a
 │   ├── step4_finetuned_point_mapper_42.pt       # the finetuned pointmapper model (early stopping applied)
-│   └── step4_finetuned_point_mapper_ver2_42.pt  # early stopping removed, epoch3 = 150 ver.
+│   ├── step4_finetuned_point_mapper_ver2_42.pt  # early stopping removed, epoch3 = 150 ver.
+│   └── step5_anomaly_scores_42.npy              # the anomaly score list from step5
 │
 ├── src/
-│   ├── data/              # 데이터 로딩/전처리 코드 (yet)
+│   ├── data/              # (yet)
 │   ├── dataset/           # dataset folder (raw)
-│   ├── models/            # 모델 클래스 definition 모음
-│   │   └── modeling.py    # encoder, decoder, SeparableConv1d, SeparableConvTranspose1d, autoencoder 클래스 정의    
+│   ├── models/            # model definition
+│   │   └── modeling.py    # encoder, decoder, SeparableConv1d, SeparableConvTranspose1d, autoencoder class    
+│   │
 │   ├── training/          # Algorithm2 training steps
 │   │   ├── step1-autoencoder_training.py       # step1 : training
 │   │   ├── step1-evaluate_metrics.py           # step1 : evaluation
@@ -32,10 +34,12 @@ Modularization/
 │   │   ├── step3-determine_criterion_point.py  # step3 : determine criterion point a
 │   │   ├── step4-pointmapper_finetune.py       # step4 : fine-tuning pointmapper (early stopping applied)
 │   │   ├── step4-pointmapper_finetune_ver2.py  # step4 : early stopping removed, epoch3 = 150 ver.
+│   │   ├── step5.1-obtain_anomaly_score.py     # step5-1 : obtain list l(anomaly_scores)
+│   │   ├── step5.2-threshold_determining.py    # step5-2 : determining threshold w/ visulaization of p
 │   │   └── test.py        # checking the best model's result of step1
 │   │
-│   ├── evaluation/        # 평가/추론 코드 모음 (yet)
-│   └── utils/             # 공통 함수, 설정 등
+│   ├── evaluation/        # (yet)
+│   └── utils/             
 │       └── data_utils.py  # 0. Seed / 1. TimeSeriesGenerator / # 2. Load Dataset & FG1-3 / # 3. Create train/validation/test sets / # 4. AEGenerator(NEW) / 5. Generate DataLoader for train/validation/test
 │   
 ├── tests/                 # (yet)
