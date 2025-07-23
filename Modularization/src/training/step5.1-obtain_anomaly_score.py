@@ -28,9 +28,9 @@ encoder.load_state_dict(checkpoint1['encoder_state_dict'])
 encoder.to(device)
 encoder.eval() 
 
-# 2. Load pretrained PointMapper
+# 2. Load finetuned PointMapper
 point_mapper = PointMapper()
-checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt')
+checkpoint2 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper_ver2_{seed}.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 point_mapper.eval() 
@@ -60,9 +60,14 @@ def calculate_anomaly_scores(encoder, point_mapper, criterion_point, dataloader,
     return scores
             
 anomaly_scores = calculate_anomaly_scores(encoder, point_mapper, a, val_loader, device) # : list l in the paper
-np.save(SAVE_DIR / f'step5_anomaly_scores_{seed}.npy', anomaly_scores)
+np.save(SAVE_DIR / f'step5_anomaly_scores_ver2_{seed}.npy', anomaly_scores)
 print(anomaly_scores[:10])
 '''
+ver1(epoch3=150):
+[5.5829998e-09 5.4068185e-09 5.4098184e-09 5.3713185e-09 5.4181033e-09
+ 5.4534821e-09 5.4186016e-09 5.2496194e-09 5.2000981e-09 5.2491895e-09]
+ 
+Ver2(Earlystopping ver.):
 [2.6919240e-09 2.6271207e-09 2.5697080e-09 2.5697964e-09 2.6360110e-09
  2.6584144e-09 2.7549187e-09 2.8181013e-09 2.9413252e-09 2.8680758e-09]
 '''

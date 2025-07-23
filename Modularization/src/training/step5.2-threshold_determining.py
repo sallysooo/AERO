@@ -11,12 +11,11 @@ sys.path.append(str(BASE_DIR / 'src')) # for module import
 import numpy as np
 from sklearn.metrics import precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import torch
-import torch.optim as optim 
 from tqdm import tqdm
 from models.modeling import Encoder, PointMapper
 from utils.data_utils import seed_everything, get_processed_dataloader
-import wandb
 
 # Configuration
 seed = 42
@@ -26,9 +25,8 @@ _, _, test_loader = get_processed_dataloader()
 
 
 # Load scores & models
-anomaly_scores_val = np.load(SAVE_DIR / f'step5_anomaly_scores_{seed}.npy')
+anomaly_scores_val = np.load(SAVE_DIR / f'step5_anomaly_scores_ver2_{seed}.npy')
 
-######CHECK!!!!!!
 test_labels = [] # 0 : benign / 1 : intrusion
 test_scores = []
 
@@ -41,7 +39,7 @@ encoder.eval()
 
 # 2. Load finetuned PointMapper
 point_mapper = PointMapper()
-checkpoint2 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper_{seed}.pt')
+checkpoint2 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper_ver2_{seed}.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 point_mapper.eval() 
@@ -66,8 +64,19 @@ with torch.no_grad():
 test_scores = np.concatenate(test_scores)
 test_labels = np.concatenate(test_labels)
 
+np.save(SAVE_DIR / f"step5.2_anomaly_scores_test_ver2_{seed}.npy", test_scores)
+np.save(SAVE_DIR / f"step5.2_labels_test_ver2_{seed}.npy", test_labels)
+
+
 # range setting
-p_values = np.arange(0.9950, 0.9997, 0.0001)
+p_values = np.arange(0.9640, 0.9700, 0.0001)
+
+'''
+p_range_1 = np.arange(0.9500, 0.9901, 0.01)
+p_range_2 = np.arange(0.9900, 0.9997, 0.0001)
+p_values = np.concatenate((p_range_1, p_range_2))
+'''
+
 precisions, recalls, f1s = [], [], []
 
 for p in p_values:
@@ -87,16 +96,19 @@ for p in p_values:
 best_idx = np.argmax(f1s)
 best_p = p_values[best_idx]
 best_tau = np.percentile(anomaly_scores_val, best_p*100)
-print(f"Best F1-score: {f1s[best_idx]:.4f} at p = {best_p}, τ = {best_tau:.6f}")
+print(f"Best F1-score: {f1s[best_idx]:.4f} at p = {best_p}, τ = {best_tau:.10f}")
 
 plt.figure(figsize=(10, 6))
-plt.plot(p_values, precisions, label='Precision', marker='s')
-plt.plot(p_values, recalls, label='Recall', marker='^')
-plt.plot(p_values, f1s, label='F1-score', marker='o')
+plt.plot(p_values, precisions, color='blue', label='Precision', marker='s')
+plt.plot(p_values, recalls, color='green', label='Recall', marker='^')
+plt.plot(p_values, f1s, color='orange', label='F1-score', marker='o')
 plt.xlabel('p')
 plt.ylabel('Score')
 plt.title('Evaluation metrics vs. threshold percentile p')
 plt.legend()
+
+# plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True, prune='both'))
+
 plt.grid(True)
 plt.tight_layout()
 plt.show()

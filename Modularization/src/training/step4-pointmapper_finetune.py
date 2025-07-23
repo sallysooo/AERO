@@ -1,3 +1,5 @@
+# Eliminated the early stopping logic, and fixed as epoch3=150 to make the model overfit intentionally (same method in the paper)
+
 import sys
 from pathlib import Path
 
@@ -50,7 +52,7 @@ wandb.init(
     project="AERO",
     name=f"step4_pointmapper_finetune_seed{seed}",
     config={
-        "epochs": 1000,
+        "epochs": 150,
         "batch_size": train_loader.batch_size,
         "lr": 1e-5,
         "model": "Pointmapper",
@@ -105,12 +107,8 @@ def evaluate_on_val(model, dataloader, encoder, criterion_point, device):
     return total_loss / len(val_loader)
 
 
-# Early Stopping settings
-patience = 10
-best_val_loss = float('inf')
-counter = 0
 
-epoch3 = 1000 # plan) let's try 1000 for this
+epoch3 = 150
 for epoch in range(epoch3):
     train_loss = train_one_epoch(point_mapper, train_loader, encoder, a, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, encoder, a, device)
@@ -123,23 +121,13 @@ for epoch in range(epoch3):
         "val_loss": val_loss
     })
 
-    # Early stopping logic
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        counter = 0
-        save_path = SAVE_DIR / f'step4_finetuned_point_mapper_{seed}.pt'
-        torch.save({
-            'epoch': epoch + 1,
-            'point_mapper_state_dict': point_mapper.state_dict(), 
-            'val_loss': val_loss,
-        }, save_path)
+    save_path = SAVE_DIR / f'step4_finetuned_point_mapper_{seed}.pt'
+    torch.save({
+        'epoch': epoch + 1,
+        'point_mapper_state_dict': point_mapper.state_dict(), 
+        'val_loss': val_loss,
+    }, save_path)
 
-        wandb.save(str(save_path))
-        print("Best model updated!")
-    else:
-        counter += 1
-        if counter >= patience:
-            print(f"Early stopping at epoch {epoch+1}")
-            break
+    wandb.save(str(save_path))
 
 wandb.finish()
