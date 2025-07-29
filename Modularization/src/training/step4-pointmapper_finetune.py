@@ -25,20 +25,20 @@ train_loader, val_loader, _ = get_processed_dataloader()
 
 # 1. Load pretrained Encoder
 encoder = Encoder(window_size=2048)
-checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
+checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder.pt')
 encoder.load_state_dict(checkpoint1['encoder_state_dict'])
 encoder.to(device)
 encoder.eval() 
 
 # 2. Load pretrained PointMapper
 point_mapper = PointMapper()
-checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt')
+checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 point_mapper.eval() 
 
 # 3. Load critertion point a 
-a = torch.load(SAVE_DIR / f"step3_criterion_point_a_{seed}.pt").to(device)
+a = torch.load(SAVE_DIR / f"step3_criterion_point_a.pt").to(device)
 
 # 4. Freeze encoder
 for param in encoder.parameters():
@@ -79,7 +79,7 @@ def train_one_epoch(model, dataloader, encoder, criterion_point, optimizer, devi
 
         optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
+        optimizer.step()           # update parameter per epoch
 
         total_loss += loss.item()
         pb.set_postfix(total_loss=total_loss)
@@ -121,7 +121,7 @@ for epoch in range(epoch3):
         "val_loss": val_loss
     })
 
-    save_path = SAVE_DIR / f'step4_finetuned_point_mapper_{seed}.pt'
+    save_path = SAVE_DIR / f'step4_finetuned_point_mapper.pt'
     torch.save({
         'epoch': epoch + 1,
         'point_mapper_state_dict': point_mapper.state_dict(), 

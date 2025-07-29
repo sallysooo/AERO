@@ -23,20 +23,20 @@ _, val_loader, _ = get_processed_dataloader()
 
 # 1. Load pretrained Encoder
 encoder = Encoder(window_size=2048)
-checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
+checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder.pt')
 encoder.load_state_dict(checkpoint1['encoder_state_dict'])
 encoder.to(device)
 encoder.eval() 
 
 # 2. Load finetuned PointMapper
 point_mapper = PointMapper()
-checkpoint2 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper_ver2_{seed}.pt')
+checkpoint2 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 point_mapper.eval() 
 
 # 3. Load critertion point a 
-a = torch.load(SAVE_DIR / f"step3_criterion_point_a_{seed}.pt").to(device)
+a = torch.load(SAVE_DIR / f"step3_criterion_point_a.pt").to(device)
 
 
 def calculate_anomaly_scores(encoder, point_mapper, criterion_point, dataloader, device):
@@ -60,15 +60,16 @@ def calculate_anomaly_scores(encoder, point_mapper, criterion_point, dataloader,
     return scores
             
 anomaly_scores = calculate_anomaly_scores(encoder, point_mapper, a, val_loader, device) # : list l in the paper
-np.save(SAVE_DIR / f'step5_anomaly_scores_ver2_{seed}.npy', anomaly_scores)
+np.save(SAVE_DIR / f'step5_anomaly_scores.npy', anomaly_scores)
 print(anomaly_scores[:10])
+
 '''
-ver1(epoch3=150):
-[5.5829998e-09 5.4068185e-09 5.4098184e-09 5.3713185e-09 5.4181033e-09
- 5.4534821e-09 5.4186016e-09 5.2496194e-09 5.2000981e-09 5.2491895e-09]
+ver1(20, 10, 150):
+[7.1846196e-10 7.1274658e-10 7.0360628e-10 6.9229611e-10 6.8181660e-10
+ 6.7246730e-10 6.7020695e-10 6.7287997e-10 6.7428385e-10 6.7031003e-10]
  
-Ver2(Earlystopping ver.):
-[2.6919240e-09 2.6271207e-09 2.5697080e-09 2.5697964e-09 2.6360110e-09
- 2.6584144e-09 2.7549187e-09 2.8181013e-09 2.9413252e-09 2.8680758e-09]
+Ver2(E31, E26, 150):
+[2.3472368e-09 2.2766338e-09 2.2530919e-09 2.2196591e-09 2.2441973e-09
+ 2.2587425e-09 2.3408857e-09 2.3507889e-09 2.3692051e-09 2.3956122e-09]
 '''
 # Since Sv set is consisted of benign data only, we can now calculate the p-percentile of the outlier score and obtain the threshold τ.

@@ -39,7 +39,7 @@ wandb.init(
 
 
 encoder = Encoder(window_size=2048)
-checkpoint = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
+checkpoint = torch.load(SAVE_DIR / f'step1_best_model_encoder.pt')
 encoder.load_state_dict(checkpoint['encoder_state_dict'])
 encoder.to(device)
 encoder.eval() 
@@ -100,8 +100,9 @@ def evaluate_on_val(model, dataloader, device):
 patience = 10
 best_val_loss = float('inf')
 counter = 0
+min_delta = 1e-9
 
-epoch2 = 10
+epoch2 = 100
 for epoch in range(epoch2):
     train_loss = train_one_epoch(point_mapper, train_loader, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, device)
@@ -115,10 +116,10 @@ for epoch in range(epoch2):
     })
 
     # Early stopping logic
-    if val_loss < best_val_loss:
+    if best_val_loss - val_loss > min_delta:
         best_val_loss = val_loss
         counter = 0
-        point_mapper_model_path = SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt'
+        point_mapper_model_path = SAVE_DIR / f'step2_best_model_point_mapper.pt'
         torch.save({
             'epoch': epoch + 1,
             'point_mapper_state_dict': point_mapper.state_dict(), 

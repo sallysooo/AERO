@@ -88,7 +88,7 @@ for epoch in range(epoch1):
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         counter = 0
-        encoder_model_path = SAVE_DIR / f'step1_best_model_encoder_{seed}.pt'
+        encoder_model_path = SAVE_DIR / f'step1_best_model_encoder.pt'
         encoder = model.get_encoder()
         torch.save({
             'epoch': epoch + 1,

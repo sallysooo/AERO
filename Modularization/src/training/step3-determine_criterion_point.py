@@ -23,14 +23,14 @@ train_loader, _, _ = get_processed_dataloader()
 
 # 1. Encoder
 encoder = Encoder(window_size=2048)
-checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
+checkpoint1 = torch.load(SAVE_DIR / f'step1_best_model_encoder.pt')
 encoder.load_state_dict(checkpoint1['encoder_state_dict'])
 encoder.to(device)
 encoder.eval() 
 
 # 2. PointMapper
 point_mapper = PointMapper()
-checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt')
+checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 point_mapper.eval() 
@@ -61,5 +61,4 @@ def calculate_criterion_point(encoder, point_mapper, dataloader, device):
     return a
             
 a = calculate_criterion_point(encoder, point_mapper, train_loader, device)
-torch.save(a.cpu(), SAVE_DIR / f"step3_criterion_point_a_{seed}.pt")
-# np.save(SAVE_DIR / f'criterion_point_a_{seed}.npy', a.cpu().numpy())
+torch.save(a.cpu(), SAVE_DIR / f"step3_criterion_point_a.pt")
