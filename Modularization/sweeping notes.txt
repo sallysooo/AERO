@@ -1,0 +1,4 @@
+ver0 : 31(early) / 10 / 10(early)
+ver1 : 31(early) / 10 / 150 
+ver2 : 31(early) / 26(early) / 150
+ver3 : 31(early) / 10 / 150

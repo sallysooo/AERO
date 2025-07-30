@@ -102,7 +102,7 @@ best_val_loss = float('inf')
 counter = 0
 min_delta = 1e-9
 
-epoch2 = 100
+epoch2 = 10
 for epoch in range(epoch2):
     train_loss = train_one_epoch(point_mapper, train_loader, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, device)

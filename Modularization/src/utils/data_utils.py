@@ -542,6 +542,7 @@ def process_split(indices, split_name, window_size, stride, cache_dir):
 
         # 3. Generate window-wise labels if test set - only test set has y in [0, 1]
         labels = None
+        # Only generate labels for test set or if enable_label is True
         if split_name == 'test':
             y_seq = dataset.df['y'].values # packet-wise labels
 
@@ -569,6 +570,7 @@ def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_di
     splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
     dataloaders = {}
     for split_name, indices in splits.items():
+        # enable_label = (split_name == 'valid')
         concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
         
         # drop_last = False (default) : By default, PyTorch DataLoader divides the entire data into the specified batch_size and includes the remaining data in the last batch.

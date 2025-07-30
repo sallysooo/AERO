@@ -122,11 +122,12 @@ for epoch in range(epoch3):
     })
 
     save_path = SAVE_DIR / f'step4_finetuned_point_mapper.pt'
-    torch.save({
-        'epoch': epoch + 1,
-        'point_mapper_state_dict': point_mapper.state_dict(), 
-        'val_loss': val_loss,
-    }, save_path)
+    if epoch == epoch3 - 1:  # save the model only when final epoch
+        torch.save({
+            'epoch': epoch + 1,
+            'point_mapper_state_dict': point_mapper.state_dict(), 
+            'val_loss': val_loss,
+        }, save_path)
 
     wandb.save(str(save_path))
 

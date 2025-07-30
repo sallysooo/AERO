@@ -71,5 +71,9 @@ ver1(20, 10, 150):
 Ver2(E31, E26, 150):
 [2.3472368e-09 2.2766338e-09 2.2530919e-09 2.2196591e-09 2.2441973e-09
  2.2587425e-09 2.3408857e-09 2.3507889e-09 2.3692051e-09 2.3956122e-09]
+
+Ver3(E31, 10, 150):
+[5.5829998e-09 5.4068185e-09 5.4098184e-09 5.3713185e-09 5.4181033e-09
+ 5.4534821e-09 5.4186016e-09 5.2496194e-09 5.2000981e-09 5.2491895e-09]
 '''
 # Since Sv set is consisted of benign data only, we can now calculate the p-percentile of the outlier score and obtain the threshold τ.

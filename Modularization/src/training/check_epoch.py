@@ -23,7 +23,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # 1. Generate model instance
 # if you want to extract the trained encoder only, implement as below :
 encoder = Encoder(window_size=2048)
-checkpoint = torch.load(SAVE_DIR / f'step1_best_model_encoder.pt')
+checkpoint = torch.load(SAVE_DIR / f'step1_best_model_encoder_{seed}.pt')
 encoder.load_state_dict(checkpoint['encoder_state_dict'])
 encoder.to(device)
 print(f"Best encoder was saved at epoch1 : {checkpoint['epoch']}")
@@ -31,7 +31,7 @@ print(f"Best encoder was saved at epoch1 : {checkpoint['epoch']}")
 
 # 2. Pretrained PointMapper
 point_mapper = PointMapper()
-checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper.pt')
+checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper_{seed}.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 print(f"Best pointmapper was saved at epoch2 : {checkpoint2['epoch']}")
@@ -39,13 +39,8 @@ print(f"Best pointmapper was saved at epoch2 : {checkpoint2['epoch']}")
 
 # 3. Finetuned PointMapper
 point_mapper = PointMapper()
-checkpoint3 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper.pt')
+checkpoint3 = torch.load(SAVE_DIR / f'step4_finetuned_point_mapper_ver2_{seed}.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
 print(f"Best pointmapper was saved at epoch3 : {checkpoint3['epoch']}")
-
-
-
-
-
 

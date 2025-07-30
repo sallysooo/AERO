@@ -16,7 +16,7 @@ print(labels) # [1,1,0,1]
 # window 4: [0,0,0,1] → 1
 # [np.int64(1), np.int64(1), np.int64(0), np.int64(1)]
 
-'''
+
 
 
 import sys
@@ -42,7 +42,47 @@ _, val_loader, _ = get_processed_dataloader()
 
 val_labels = []
 for _, labels in val_loader:
-    val_labels.append(labels.numpy()) # still ERROR...
+    val_labels.append(labels.numpy())
 
 val_labels = np.concatenate(val_labels)
-print("Number of anomalous samples in validation set:", (val_labels == 1).sum())
+print("Number of anomalous samples in validation set:", (val_labels == 'Intrusion').sum())
+# Number of anomalous samples in validation set: 0
+
+'''
+
+import sys
+from pathlib import Path
+
+# path setting
+BASE_DIR = Path(__file__).resolve().parent.parent.parent # LAB/Modularization/
+SAVE_DIR = BASE_DIR / 'saved_models'
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+sys.path.append(str(BASE_DIR / 'src')) # for module import
+
+import numpy as np
+import torch
+from utils.data_utils import seed_everything, get_processed_dataloader
+
+# Configuration
+seed = 42
+seed_everything(seed)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+_, _, test_loader = get_processed_dataloader()
+
+
+test_labels = []
+for _, labels in test_loader:
+    test_labels.append(labels.numpy())
+
+test_labels = np.concatenate(test_labels)
+print("Number of anomalous samples in test set:", (test_labels == 1).sum())
+# Number of anomalous samples(test_labels : 1) in test set: 1107657
+# Number of benign samples(test_labels : 0) in test set: 581292
+
+
+
+
+
+
+
