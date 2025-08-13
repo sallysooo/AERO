@@ -15,8 +15,8 @@ from utils.data_utils import seed_everything, get_processed_dataloader
 import numpy as np
 
 # Configuration
-seed = 42
-seed_everything(seed)
+seed = ''
+# seed_everything(seed)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 _, val_loader, _ = get_processed_dataloader()
 
@@ -75,5 +75,14 @@ Ver2(E31, E26, 150):
 Ver3(E31, 10, 150):
 [5.5829998e-09 5.4068185e-09 5.4098184e-09 5.3713185e-09 5.4181033e-09
  5.4534821e-09 5.4186016e-09 5.2496194e-09 5.2000981e-09 5.2491895e-09]
+
+Ver4(E17, E10, E26):
+[9.5063335e-09 9.5066683e-09 9.5073291e-09 9.4959809e-09 9.4989705e-09
+ 9.4950581e-09 9.4974446e-09 9.4974446e-09 9.5124744e-09 9.4946726e-09]
+
+Ver5(20, 10, 150):
+[1.24633139e-08 1.25007400e-08 1.24496022e-08 1.24425350e-08
+ 1.23798838e-08 1.23880515e-08 1.22855432e-08 1.21975736e-08
+ 1.22325066e-08 1.23550379e-08]
 '''
 # Since Sv set is consisted of benign data only, we can now calculate the p-percentile of the outlier score and obtain the threshold τ.

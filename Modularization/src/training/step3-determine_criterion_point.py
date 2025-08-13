@@ -14,8 +14,8 @@ from tqdm import tqdm
 from models.modeling import Encoder, PointMapper
 from utils.data_utils import seed_everything, get_processed_dataloader
 
-seed = 42
-seed_everything(seed)
+seed = ''
+# seed_everything(seed)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, _, _ = get_processed_dataloader()

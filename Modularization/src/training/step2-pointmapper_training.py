@@ -1,3 +1,5 @@
+# no seed, no early stopping
+
 import sys
 from pathlib import Path
 
@@ -12,12 +14,10 @@ import torch
 import torch.optim as optim 
 from tqdm import tqdm
 from models.modeling import Encoder, PointMapper
-from utils.data_utils import seed_everything, get_processed_dataloader
+from utils.data_utils import get_processed_dataloader
 import wandb
 
 # Configuration
-seed = 42
-seed_everything(seed)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, _ = get_processed_dataloader()
 
@@ -25,11 +25,13 @@ train_loader, val_loader, _ = get_processed_dataloader()
 point_mapper = PointMapper().to(device)
 optimizer = optim.Adam(point_mapper.parameters(), lr=1e-5)
 
+epoch2 = 10
+
 wandb.init(
     project="AERO",
-    name=f"step2_pointmapper_seed{seed}",
+    name=f"step2_pointmapper_training",
     config={
-        "epochs": 100,
+        "epochs": {epoch2},
         "batch_size": train_loader.batch_size,
         "lr": 1e-5,
         "model": "PointMapper",
@@ -96,13 +98,8 @@ def evaluate_on_val(model, dataloader, device):
     return total_loss / len(val_loader)
 
 
-# Early Stopping settings
-patience = 10
 best_val_loss = float('inf')
-counter = 0
-min_delta = 1e-9
 
-epoch2 = 10
 for epoch in range(epoch2):
     train_loss = train_one_epoch(point_mapper, train_loader, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, device)
@@ -115,23 +112,13 @@ for epoch in range(epoch2):
         "val_loss": val_loss
     })
 
-    # Early stopping logic
-    if best_val_loss - val_loss > min_delta:
-        best_val_loss = val_loss
-        counter = 0
-        point_mapper_model_path = SAVE_DIR / f'step2_best_model_point_mapper.pt'
-        torch.save({
-            'epoch': epoch + 1,
-            'point_mapper_state_dict': point_mapper.state_dict(), 
-            'val_loss': val_loss,
-        }, point_mapper_model_path)
+point_mapper_model_path = SAVE_DIR / f'step2_best_model_point_mapper.pt'
+torch.save({
+    'epoch': epoch + 1,
+    'point_mapper_state_dict': point_mapper.state_dict(), 
+    'val_loss': val_loss,
+}, point_mapper_model_path)
 
-        wandb.save(str(point_mapper_model_path))
-        print("Best model updated!")
-    else:
-        counter += 1
-        if counter >= patience:
-            print(f"Early stopping at epoch {epoch+1}")
-            break
+wandb.save(str(point_mapper_model_path))
 
 wandb.finish()

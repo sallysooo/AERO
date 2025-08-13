@@ -47,12 +47,14 @@ for param in encoder.parameters():
 # 5. Optimizer for fine-tuning point mapper
 optimizer = optim.Adam(point_mapper.parameters(), lr=1e-5)
 
+epoch3 = 150
+
 # wandb init
 wandb.init(
     project="AERO",
-    name=f"step4_pointmapper_finetune_seed{seed}",
+    name=f"step4_pointmapper_finetune",
     config={
-        "epochs": 150,
+        "epochs": {epoch3},
         "batch_size": train_loader.batch_size,
         "lr": 1e-5,
         "model": "Pointmapper",
@@ -107,8 +109,6 @@ def evaluate_on_val(model, dataloader, encoder, criterion_point, device):
     return total_loss / len(val_loader)
 
 
-
-epoch3 = 150
 for epoch in range(epoch3):
     train_loss = train_one_epoch(point_mapper, train_loader, encoder, a, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, encoder, a, device)

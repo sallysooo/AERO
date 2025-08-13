@@ -26,7 +26,6 @@ Modularization/
 │   └── step5_anomaly_scores_42.npy              # the anomaly score list from step5
 │
 ├── src/
-│   ├── data/              # (yet)
 │   ├── dataset/           # dataset folder (raw)
 │   ├── models/            # model definition
 │   │   └── modeling.py    # encoder, decoder, SeparableConv1d, SeparableConvTranspose1d, autoencoder class    
@@ -47,6 +46,5 @@ Modularization/
 │       └── data_utils.py  # 0. Seed / 1. TimeSeriesGenerator / # 2. Load Dataset & FG1-3 / # 3. Create train/validation/test sets / # 4. AEGenerator(NEW) / 5. Generate DataLoader for train/validation/test
 │   
 ├── tests/                 # (yet)
-├── algorithm2.py          # (yet)
 └── README.md
 ```
