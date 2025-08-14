@@ -1,0 +1,3 @@
+attack_type,features,misses,fnr
+AVTP frame injection,98514,2652,0.026920
+PTP sync attack,137818,49,0.000356
