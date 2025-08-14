@@ -14,9 +14,9 @@ from models.modeling import Encoder, PointMapper
 from utils.data_utils import seed_everything, get_processed_dataloader
 import numpy as np
 
+seed_everything(42)
+
 # Configuration
-seed = ''
-# seed_everything(seed)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 _, val_loader, _ = get_processed_dataloader()
 
@@ -38,7 +38,7 @@ point_mapper.eval()
 # 3. Load critertion point a 
 a = torch.load(SAVE_DIR / f"step3_criterion_point_a.pt").to(device)
 
-
+@torch.no_grad()
 def calculate_anomaly_scores(encoder, point_mapper, criterion_point, dataloader, device):
     # calculate anomaly score for each data in Sv
     all_scores = []
@@ -48,6 +48,7 @@ def calculate_anomaly_scores(encoder, point_mapper, criterion_point, dataloader,
         for batch, _ in pb:
             t, p, s = batch
             t, p, s = t.to(device), p.to(device), s.to(device)
+            # t, p, s = (x.to(device) for x in batch)
             
             h = encoder((t, p, s))   # (b, 704)
             m = point_mapper(h)      # (b, d_m)
@@ -84,5 +85,13 @@ Ver5(20, 10, 150):
 [1.24633139e-08 1.25007400e-08 1.24496022e-08 1.24425350e-08
  1.23798838e-08 1.23880515e-08 1.22855432e-08 1.21975736e-08
  1.22325066e-08 1.23550379e-08]
+
+finetuned_point_mapper ver.
+[1.6155273e-09 1.5343462e-09 1.5350304e-09 1.5357038e-09 1.5355451e-09
+ 1.5350907e-09 1.5349713e-09 1.5350907e-09 1.5353392e-09 1.5353988e-09]
+
+best_point_mapper ver.
+[7.4220713e-10 6.7467748e-10 6.7487987e-10 6.7474953e-10 6.7462724e-10
+ 6.7454320e-10 6.7491829e-10 6.7454320e-10 6.7412220e-10 6.7526995e-10]
 '''
 # Since Sv set is consisted of benign data only, we can now calculate the p-percentile of the outlier score and obtain the threshold τ.

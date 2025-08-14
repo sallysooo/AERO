@@ -4,7 +4,11 @@ ver1 : 20 / 10 / 150
 ver2 : 31(early) / 26(early) / 150
 ver3 : 31(early) / 10 / 150
 
+ver6 : 20 / 10 / 150 # after revision of data_utils.py
+
 ========================================
 # no seed ver.
 ver4 : 7(early) / 10(early) / 1(early)
 ver5 : 20 / 10 / 150
+
+

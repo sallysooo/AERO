@@ -7,7 +7,6 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent # LAB/Modularization/
 SAVE_DIR = BASE_DIR / 'saved_models'
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
-
 sys.path.append(str(BASE_DIR / 'src')) # for module import
 
 import torch
@@ -18,8 +17,7 @@ from utils.data_utils import seed_everything, get_processed_dataloader
 import wandb
 
 # Configuration
-seed = 42
-seed_everything(seed)
+seed_everything(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, val_loader, _ = get_processed_dataloader()
 
@@ -35,7 +33,6 @@ point_mapper = PointMapper()
 checkpoint2 = torch.load(SAVE_DIR / f'step2_best_model_point_mapper.pt')
 point_mapper.load_state_dict(checkpoint2['point_mapper_state_dict'])
 point_mapper.to(device)
-point_mapper.eval() 
 
 # 3. Load critertion point a 
 a = torch.load(SAVE_DIR / f"step3_criterion_point_a.pt").to(device)
@@ -46,7 +43,6 @@ for param in encoder.parameters():
 
 # 5. Optimizer for fine-tuning point mapper
 optimizer = optim.Adam(point_mapper.parameters(), lr=1e-5)
-
 epoch3 = 150
 
 # wandb init
@@ -54,7 +50,7 @@ wandb.init(
     project="AERO",
     name=f"step4_pointmapper_finetune",
     config={
-        "epochs": {epoch3},
+        "epochs": epoch3,
         "batch_size": train_loader.batch_size,
         "lr": 1e-5,
         "model": "Pointmapper",
@@ -64,20 +60,21 @@ wandb.init(
 
 
 # ==== Training ====
-def train_one_epoch(model, dataloader, encoder, criterion_point, optimizer, device):
+def train_one_epoch(model, dataloader, encoder, a, optimizer, device):
     model.train()
     total_loss = 0
 
     pb = tqdm(dataloader, desc='Fine-Tuning PM')
-    for batch, _ in pb:
+    for i, (batch, _) in enumerate(pb, 1):
         t, p, s = batch
         t, p, s = t.to(device), p.to(device), s.to(device)
+        # t, p, s = (x.to(device) for x in batch)
 
         with torch.no_grad():
             h = encoder((t, p, s)) # (b, 704) : extract h from the previously trained encoder
         
         m = model(h)               # (b, d_m)
-        loss = ((m - criterion_point)**2).sum() # L_M using fixed a
+        loss = ((m - a)**2).sum(dim=1).mean() # L_M using fixed a
 
         optimizer.zero_grad()
         loss.backward()
@@ -86,34 +83,40 @@ def train_one_epoch(model, dataloader, encoder, criterion_point, optimizer, devi
         total_loss += loss.item()
         pb.set_postfix(total_loss=total_loss)
 
-    return total_loss / len(dataloader)
+    return total_loss / i
 
 
 # ==== Validation ====
-def evaluate_on_val(model, dataloader, encoder, criterion_point, device):
+@torch.no_grad()
+def evaluate_on_val(model, dataloader, encoder, a, device):
     model.eval()
     total_loss = 0
 
     with torch.no_grad():
         pb = tqdm(dataloader, desc='Validation')
-        for batch, _ in pb:
+        for i, (batch, _) in enumerate(pb, 1):
             t, p, s = batch
             t, p, s = t.to(device), p.to(device), s.to(device)
+            # t, p, s = (x.to(device) for x in batch)
 
             h = encoder((t, p, s))
             m = model(h)
-            loss = ((m - criterion_point)**2).sum()
+            loss = ((m - a)**2).sum(dim=1).mean()
             total_loss += loss.item()
             pb.set_postfix(total_loss=total_loss)
 
-    return total_loss / len(val_loader)
+    return total_loss / i
 
 
-for epoch in range(epoch3):
+best_val, best_epoch = float('inf'), -1
+best_path = SAVE_DIR / 'step4_best_point_mapper.pt'
+final_path = SAVE_DIR / 'step4_finetuned_point_mapper.pt'
+
+for epoch in range(epoch3+1):
     train_loss = train_one_epoch(point_mapper, train_loader, encoder, a, optimizer, device)
     val_loss = evaluate_on_val(point_mapper, val_loader, encoder, a, device)
 
-    print(f"Epoch {epoch+1} | Train Loss: {train_loss:.10f} | Val Loss: {val_loss:.10f}")
+    print(f"[Epoch {epoch:03d}] pm_train={train_loss:.10f}  pm_val={val_loss:.10f}")
 
     wandb.log({
         "epoch": epoch + 1,
@@ -121,14 +124,22 @@ for epoch in range(epoch3):
         "val_loss": val_loss
     })
 
-    save_path = SAVE_DIR / f'step4_finetuned_point_mapper.pt'
-    if epoch == epoch3 - 1:  # save the model only when final epoch
+    if val_loss < best_val:
+        best_val, best_epoch = val_loss, epoch
         torch.save({
-            'epoch': epoch + 1,
+            'epoch': epoch,
             'point_mapper_state_dict': point_mapper.state_dict(), 
             'val_loss': val_loss,
-        }, save_path)
+        }, best_path)
+        wandb.save(str(best_path))
 
-    wandb.save(str(save_path))
+# save last epoch
+torch.save({
+    'epoch': epoch3,
+    'point_mapper_state_dict': point_mapper.state_dict(),
+    'val_loss': val_loss
+}, final_path)
+wandb.save(str(final_path))
 
+print(f"Best PM (fine-tune) @ epoch {best_epoch}: {best_val:.10f}")
 wandb.finish()

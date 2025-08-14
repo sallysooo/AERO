@@ -389,7 +389,7 @@ from torch.utils.data import Dataset as TorchDataset, DataLoader
 from torch.utils.data import ConcatDataset
 
 class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
-    def __init__(self, T, P, S, window_size=2048, stride=1, sampling_rate=1, shuffle=False, reverse=False): 
+    def __init__(self, T, P, S, labels=None, window_size=2048, stride=1, sampling_rate=1, shuffle=False, reverse=False): 
         '''
         T : nparray (n, 3, 3) window 단위
         P : nparray (m, 9) packet 단위
@@ -405,6 +405,7 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         self.P = P
         self.S = S
         self.n = T.shape[0]
+        self.labels = labels
         self.window_size = window_size
         self.stride = stride
         self.sampling_rate = sampling_rate
@@ -422,6 +423,9 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         if len(self.indices) > len(T):
             self.indices = self.indices[:len(T)] # T, S 크기에 맞춤
         
+        if self.labels is not None:
+            assert len(self.indices) == len(self.labels), f'Label number {len(self.labels)} ≠ Index number {len(self.indices)}'
+
         if self.shuffle:
             np.random.shuffle(self.indices)
         
@@ -453,8 +457,9 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         # 최종 window를 torch tensor로 변환
         p = torch.from_numpy(p_window.astype('float32'))
 
-        x = y = (t, p, s)
-        
+        x = (t, p, s)
+        y = self.labels[index] if self.labels is not None else (t, p, s)
+
         return x, y
 
     def __iter__(self):
@@ -468,7 +473,7 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         return (t.shape, p.shape, s.shape)
 
     @property
-    def num_samples(self): # 총 샘플 수 반환
+    def num_samples(self): # number of total samples
         return len(self)
 
     def __str__(self):
@@ -493,13 +498,14 @@ def get_cache_paths(cache_dir, split_name, idx, window_size=2048, stride=1):
 
 def process_split(indices, split_name, window_size, stride, cache_dir):
     datasets = []
-    # 1. load data
+
+    # 1. load raw sliced datasets (Packet dump 1, 2 w/ slicing)
     list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
     for arg in tqdm(args, desc=f'Loading args for {split_name}'):
         _, dataset_sub = do(*arg)
         list_dataset_sub.append(dataset_sub)
     
-
+    # 2. For each dataset slice (e.g. train/valid/test from Packet dump 1, 2)
     for idx in tqdm(indices, desc=f'Creating AEGenerators for {split_name} indices'):
         dataset = list_dataset_sub[idx]
         t_path, p_path, s_path = get_cache_paths(cache_dir, split_name, idx, window_size, stride) 
@@ -534,7 +540,27 @@ def process_split(indices, split_name, window_size, stride, cache_dir):
             with s_path.open('wb') as f:
                 pickle.dump(S, f)
 
-        datasets.append(AEGenerator(T, P, S, window_size=window_size, stride=stride))
+        # 3. Generate window-wise labels if test set - only test set has y in [0, 1]
+        labels = None
+        # Only generate labels for test set or if enable_label is True
+        if split_name == 'test':
+            y_seq = dataset.df['y'].values # packet-wise labels
+
+            # Generate window and indices (same as AEGenerator)
+            all_indices = np.arange(window_size, len(P) + 1, stride)
+            if len(all_indices) > len(T):
+                all_indices = all_indices[:len(T)]
+
+            # Create label per window : if any intrusion(1) exists in the window, label as (1)
+            labels = []
+            for i in all_indices:
+                start_idx = max(0, i - window_size)
+                end_idx = i
+                window_label = y_seq[start_idx : end_idx]
+                labels.append(int(window_label.max()))
+            labels = np.array(labels)
+
+        datasets.append(AEGenerator(T, P, S, labels=labels, window_size=window_size, stride=stride))
     
     return ConcatDataset(datasets)
 
@@ -544,6 +570,7 @@ def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_di
     splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
     dataloaders = {}
     for split_name, indices in splits.items():
+        # enable_label = (split_name == 'valid')
         concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
         
         # drop_last = False (default) : By default, PyTorch DataLoader divides the entire data into the specified batch_size and includes the remaining data in the last batch.

@@ -5,7 +5,6 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent # LAB/Modularization/
 SAVE_DIR = BASE_DIR / 'saved_models'
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
-
 sys.path.append(str(BASE_DIR / 'src')) # for module import
 
 import numpy as np
@@ -16,9 +15,9 @@ from tqdm import tqdm
 from models.modeling import Encoder, PointMapper
 from utils.data_utils import seed_everything, get_processed_dataloader
 
+seed_everything(42)
+
 # Configuration
-seed = ''
-# seed_everything(seed)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 _, _, test_loader = get_processed_dataloader()
 
@@ -52,6 +51,7 @@ with torch.no_grad():
     for batch, labels in pb:
         t, p, s = batch
         t, p, s = t.to(device), p.to(device), s.to(device)
+        # t, p, s = (x.to(device) for x in batch)
             
         h = encoder((t, p, s))   # (b, 704)
         m = point_mapper(h)      # (b, d_m)
@@ -67,24 +67,30 @@ np.save(SAVE_DIR / f"step5.2_anomaly_scores_test.npy", test_scores)
 np.save(SAVE_DIR / f"step5.2_labels_test.npy", test_labels)
 
 
-# range setting
-p_values = np.arange(0.9000, 0.9900, 0.005)
+# ---- Percentile sweep (2-stage) ----
+# 1) coarse: 0.9900 ~ 0.9990
+p_coarse = np.arange(0.9900, 0.9990 + 1e-12, 0.001)
+# 2) fine:   0.9990 ~ 0.9996 (논문 구간: 0.9990~0.9994)
+p_fine   = np.arange(0.9990, 0.9996 + 1e-12, 0.0001)
+p_values = np.unique(np.concatenate([p_coarse, p_fine]))
 
-'''
-p_range_1 = np.arange(0.9500, 0.9901, 0.01)
-p_range_2 = np.arange(0.9900, 0.9997, 0.0001)
-p_values = np.concatenate((p_range_1, p_range_2))
-'''
+# # ---- Fine sweep in the extreme tail (0.9990 ~ 1.0000) ----
+# # 0.9990~0.9999: 1e-4 간격, 0.99990~0.99999: 1e-5 간격
+# p_range_1 = np.arange(0.9990, 0.9999 + 1e-12, 1e-4)
+# p_range_2 = np.arange(0.99990, 0.99999 + 1e-12, 1e-5)
+
+# p_values = np.unique(np.clip(np.concatenate([p_range_1, p_range_2]), 0.0, 1.0 - 1e-12))
+
 
 precisions, recalls, f1s = [], [], []
 
 for p in p_values:
-    tau = np.percentile(anomaly_scores_val, p*100)
+    tau = np.percentile(anomaly_scores_val, p*100.0)
     pred = (test_scores >= tau).astype(int)
 
-    precision = precision_score(test_labels, pred)
-    recall = recall_score(test_labels, pred)
-    f1 = f1_score(test_labels, pred)
+    precision = precision_score(test_labels, pred, zero_division=0)
+    recall = recall_score(test_labels, pred, zero_division=0)
+    f1 = f1_score(test_labels, pred, zero_division=0)
 
     precisions.append(precision)
     recalls.append(recall)
@@ -94,8 +100,8 @@ for p in p_values:
 # save best threshold
 best_idx = np.argmax(f1s)
 best_p = p_values[best_idx]
-best_tau = np.percentile(anomaly_scores_val, best_p*100)
-print(f"Best F1-score: {f1s[best_idx]:.4f} at p = {best_p}, tau = {best_tau:.10f}")
+best_tau = np.percentile(anomaly_scores_val, best_p*100.0)
+print(f"Best F1-score: {f1s[best_idx]:.4f} at p={best_p:.4f}, tau={best_tau:.8e}")
 
 plt.figure(figsize=(10, 6))
 plt.plot(p_values, precisions, color='blue', label='Precision', marker='s')
@@ -105,12 +111,12 @@ plt.xlabel('p')
 plt.ylabel('Score')
 plt.title('Evaluation metrics vs. threshold percentile p')
 plt.legend()
-
 plt.grid(True)
 
 from pathlib import Path
-SAVE_DIR = BASE_DIR / 'img'
-out_path = Path(SAVE_DIR) / "ver5.png"
+IMG_DIR = BASE_DIR / 'img' 
+IMG_DIR.mkdir(parents=True, exist_ok=True)
+out_path = IMG_DIR / 'ver6.1.png'
 plt.tight_layout()
 plt.savefig(out_path, dpi=150)
 print(f"Plot saved to: {out_path}")
@@ -124,4 +130,6 @@ ver2 => Best F1-score: 0.6935 at p = 0.9, tau = 0.0000000026
 ver3 => Best F1-score: 0.5946 at p = 0.8, tau = 0.0000000054
 ver4 => Best F1-score: 0.9018 at p = 0.9750000000000001, tau = 0.0000000202
 ver5 => Best F1-score: 0.6308 at p = 0.9, tau = 0.0000000132
+
+ver6 => Best F1-score: 0.9799 at p=0.9996, tau=8.16895898e-09
 '''

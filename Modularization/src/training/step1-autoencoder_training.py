@@ -7,7 +7,6 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent # LAB/Modularization/
 SAVE_DIR = BASE_DIR / 'saved_models'
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
-
 sys.path.append(str(BASE_DIR / 'src')) # for module import
 
 import torch
@@ -15,8 +14,10 @@ import torch.nn.functional as F
 import torch.optim as optim 
 from tqdm import tqdm
 from models.modeling import Autoencoder
-from utils.data_utils import get_processed_dataloader
+from utils.data_utils import get_processed_dataloader, seed_everything
 import wandb
+
+seed_everything(42)
 
 # Configuration
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -32,7 +33,7 @@ wandb.init(
     project="AERO",
     name=f"step1_autoencoder_training",
     config={
-        "epochs": {epoch1},
+        "epochs": epoch1,
         "batch_size": train_loader.batch_size,
         "lr": 1e-4,
         "model": "Autoencoder",
@@ -40,12 +41,11 @@ wandb.init(
     }
 )
 
-
 def train_one_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0
     pb = tqdm(dataloader, desc='Training')
-    for x, _ in pb:
+    for i, (x, _) in enumerate(pb, 1):
         t, p, s = (item.to(device) for item in x)  # [64, 9], [64, 2048, 9], [64, 9]
         optimizer.zero_grad()
         t_hat, p_hat, s_hat = model((t, p, s))     # [64, 9], [64, 2048, 9], [64, 9]
@@ -56,14 +56,15 @@ def train_one_epoch(model, dataloader, optimizer, device):
 
         total_loss += loss.item()
         pb.set_postfix(total_loss=total_loss)
-    return total_loss / len(dataloader)
+    return total_loss / i
 
+@torch.no_grad()
 def evaluate_on_val(model, dataloader, device):
     model.eval()
     total_loss = 0
     pb = tqdm(dataloader, desc='Validation')
     with torch.no_grad():
-        for x, _ in pb:
+        for i, (x, _) in enumerate(pb, 1):
             t, p, s = (item.to(device) for item in x) # [64, 9], [64, 2048, 9], [64, 9]
             t_hat, p_hat, s_hat = model((t, p, s))
 
@@ -71,23 +72,29 @@ def evaluate_on_val(model, dataloader, device):
             
             total_loss += loss.item()
             pb.set_postfix(total_loss=total_loss)
-    return total_loss / len(dataloader)
+    return total_loss / i
 
 
 best_val_loss = float('inf')
+best_epoch = -1
+encoder_model_path = SAVE_DIR / f'step1_best_model_encoder.pt'
 
-for epoch in range(epoch1):
+
+for epoch in range(1, epoch1+1):
     train_loss = train_one_epoch(model, train_loader, optimizer, device)
     val_loss = evaluate_on_val(model, val_loader, device)
 
-    print(f"Epoch {epoch+1} | Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
+    wandb.log({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
+    print(f"[Epoch {epoch:02d}] train={train_loss:.6f}  val={val_loss:.6f}")
 
-encoder_model_path = SAVE_DIR / f'step1_best_model_encoder.pt'
-encoder = model.get_encoder()
-torch.save({
-    'epoch': epoch + 1,
-    'encoder_state_dict': encoder.state_dict(), # save the trained encoder only (discard decoder)
-    'val_loss': val_loss,
-}, encoder_model_path)
+    if val_loss < best_val_loss:
+        best_val_loss, best_epoch = val_loss, epoch
+        encoder = model.get_encoder()
+        torch.save({
+            'epoch': epoch,
+            'encoder_state_dict': encoder.state_dict(), # save the trained encoder only (discard decoder)
+            'val_loss': val_loss,
+        }, encoder_model_path)
+        wandb.save(str(encoder_model_path))
 
-wandb.save(str(encoder_model_path))
+print(f"Best val @ epoch {best_epoch}: {best_val_loss:.6f}")

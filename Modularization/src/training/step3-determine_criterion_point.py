@@ -14,8 +14,7 @@ from tqdm import tqdm
 from models.modeling import Encoder, PointMapper
 from utils.data_utils import seed_everything, get_processed_dataloader
 
-seed = ''
-# seed_everything(seed)
+seed_everything(42)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 train_loader, _, _ = get_processed_dataloader()
@@ -42,6 +41,7 @@ for param in encoder.parameters():
 for param in point_mapper.parameters():
     param.requires_grad = False
 
+@torch.no_grad()
 def calculate_criterion_point(encoder, point_mapper, dataloader, device):
     M_all = []
 
@@ -50,6 +50,7 @@ def calculate_criterion_point(encoder, point_mapper, dataloader, device):
         for batch, _ in pb:
             t, p, s = batch
             t, p, s = t.to(device), p.to(device), s.to(device)
+            # t, p, s = (x.to(device) for x in batch)
             
             h = encoder((t, p, s))   # (b, 704)
             m = point_mapper(h)      # (b, d_m)
