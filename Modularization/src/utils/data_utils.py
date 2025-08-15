@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 import pickle
 
-# [CHANGED] move torch import up because seed_everything uses it
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -160,9 +159,10 @@ def _detect_protocol(frame: np.ndarray) -> str:
     if et == 0x88F7:   # gPTP
         return 'PTP'
     if et == 0x0800 and _is_ipv4_udp(frame):
-        dp = _udp_dst_port(frame)
-        if 17220 <= dp <= 17230:
-            return 'UDP'  # CAN/UDP
+        return 'UDP'
+        # dp = _udp_dst_port(frame)
+        # if 17220 <= dp <= 17230:
+        #     return 'UDP'  # CAN/UDP
     return ''  # unknown/other
 
 # 2. Load Dataset

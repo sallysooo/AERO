@@ -71,7 +71,7 @@ np.save(SAVE_DIR / f"step5.2_labels_test.npy", test_labels)
 # 1) coarse: 0.9900 ~ 0.9990
 p_coarse = np.arange(0.9900, 0.9990 + 1e-12, 0.001)
 # 2) fine:   0.9990 ~ 0.9996 (논문 구간: 0.9990~0.9994)
-p_fine   = np.arange(0.9990, 0.9996 + 1e-12, 0.0001)
+p_fine   = np.arange(0.9990, 0.9997 + 1e-12, 0.0001)
 p_values = np.unique(np.concatenate([p_coarse, p_fine]))
 
 # # ---- Fine sweep in the extreme tail (0.9990 ~ 1.0000) ----
@@ -116,7 +116,7 @@ plt.grid(True)
 from pathlib import Path
 IMG_DIR = BASE_DIR / 'img' 
 IMG_DIR.mkdir(parents=True, exist_ok=True)
-out_path = IMG_DIR / 'ver6.1.png'
+out_path = IMG_DIR / 'ver7.png'
 plt.tight_layout()
 plt.savefig(out_path, dpi=150)
 print(f"Plot saved to: {out_path}")
@@ -132,4 +132,5 @@ ver4 => Best F1-score: 0.9018 at p = 0.9750000000000001, tau = 0.0000000202
 ver5 => Best F1-score: 0.6308 at p = 0.9, tau = 0.0000000132
 
 ver6 => Best F1-score: 0.9799 at p=0.9996, tau=8.16895898e-09
+ver7 => Best F1-score: 0.9796 at p=0.9910, tau=1.06214989e-08 -> p=0.997로 설정?
 '''
