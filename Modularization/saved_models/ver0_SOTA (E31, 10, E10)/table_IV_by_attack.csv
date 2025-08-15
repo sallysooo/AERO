@@ -1,6 +1,0 @@
-attack_type,features,misses,fnr
-AVTP frame injection,205689,5796,0.028178
-CAM table overflow,161105,6675,0.041433
-CAN DoS,267383,2464,0.009215
-CAN replay,208669,5754,0.027575
-PTP sync attack,264811,121,0.000457

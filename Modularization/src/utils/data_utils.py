@@ -13,13 +13,6 @@ import os
 from pathlib import Path
 import pickle
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim 
-from torch.utils.data import Dataset as TorchDataset, DataLoader
-from torch.utils.data import ConcatDataset
-
 # 현재 파일(data_utils.py)의 위치를 기준으로 dataset 폴더의 절대 경로를 계산
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATASET_DIR = BASE_DIR / 'dataset'
@@ -112,59 +105,6 @@ class TimeseriesGenerator:
     def __repr__(self):
         return self.__str__()
 
-# [CHANGED] --- Helpers for protocol parsing & offsets ---
-def _ethertype(frame: np.ndarray, offset: int = 12) -> int:
-    # EtherType at bytes 12-13, but if VLAN (0x8100), actual EtherType at 16-17
-    if len(frame) < offset + 2:
-        return -1
-    et = int.from_bytes(frame[offset:offset+2], 'big', signed=False)
-    if et == 0x8100 and len(frame) >= 18:
-        et = int.from_bytes(frame[16:18], 'big', signed=False)
-    return et
-
-def _l2_len(frame: np.ndarray) -> int:
-    # Ethernet header 14B (+4B VLAN tag if present)
-    if len(frame) >= 14 and int.from_bytes(frame[12:14], 'big') == 0x8100:
-        return 18
-    return 14
-
-def _is_ipv4_udp(frame: np.ndarray) -> bool:
-    et = _ethertype(frame)
-    if et != 0x0800:  # IPv4
-        return False
-    # IPv4 header: protocol at byte 23 (assuming no VLAN; VLAN already handled by _ethertype)
-    if len(frame) < 24:
-        return False
-    ip_proto = frame[23]
-    return ip_proto == 17  # UDP
-
-def _udp_dst_port(frame: np.ndarray) -> int:
-    # IPv4 header length: IHL at byte 14 (lower 4 bits) * 4
-    # But if VLAN, L2 is 18. Compute dynamically.
-    l2 = _l2_len(frame)
-    if len(frame) < l2 + 20:  # minimal IPv4 header
-        return -1
-    ihl = (frame[l2] & 0x0F) * 4
-    ip_start = l2
-    udp_start = ip_start + ihl
-    if len(frame) < udp_start + 4:
-        return -1
-    dst_port = int.from_bytes(frame[udp_start+2:udp_start+4], 'big', signed=False)
-    return dst_port
-
-def _detect_protocol(frame: np.ndarray) -> str:
-    et = _ethertype(frame)
-    if et == 0x22F0:   # AVTP
-        return 'AVTP'
-    if et == 0x88F7:   # gPTP
-        return 'PTP'
-    if et == 0x0800 and _is_ipv4_udp(frame):
-        return 'UDP'
-        # dp = _udp_dst_port(frame)
-        # if 17220 <= dp <= 17230:
-        #     return 'UDP'  # CAN/UDP
-    return ''  # unknown/other
-
 # 2. Load Dataset
 class PktDataset: # 기존의 Dataset 클래스명의 충돌 방지를 위해 PktDataset으로 이름 변경
     def __init__(self, df: pd.DataFrame, trim_etc_protocols=True):
@@ -177,6 +117,8 @@ class PktDataset: # 기존의 Dataset 클래스명의 충돌 방지를 위해 Pk
 
     @classmethod
     def _load_towids_dataset(cls, path_pcap, usec_unit, path_csv=None, **kwargs):
+        # assert scapy.__version__ == '2.4.4', 'scapy version mismatch.'
+
         reader = RawPcapReader(str(path_pcap))
         list_output = list()
         for idx, (payload, metadata) in tqdm(enumerate(reader), desc='Parsing the pcap file...'):
@@ -194,7 +136,6 @@ class PktDataset: # 기존의 Dataset 클래스명의 충돌 방지를 위해 Pk
             df_label = pd.DataFrame(index=df_pcap.index)
             df_label['y'] = 0
             df_label['y_desc'] = 'Normal'
-
         abstime = pd.to_datetime(df_pcap['sec'], unit='s') + pd.to_timedelta(df_pcap['usec'], unit=usec_unit)
         dupcounts = abstime.duplicated(keep=False).sum()
 
@@ -223,15 +164,13 @@ class PktDataset: # 기존의 Dataset 클래스명의 충돌 방지를 위해 Pk
         assert df['abstime'].is_monotonic_increasing
         assert df['monotime'].is_monotonic_increasing
 
-        # [CHANGED] Protocol specification by parsing, not wirelen
-        protos = []
-        for arr, ydesc in zip(df['payload'].values, df['y_desc'].values):
-            proto = _detect_protocol(arr)
-            # special case: keep P_I as PTP if detection missed (defensive)
-            if ydesc == 'P_I' and proto == '':
-                proto = 'PTP'
-            protos.append(proto)
-        df['ProtocolType'] = protos
+        # Protocol specification
+        df['ProtocolType'] = ''
+        df.loc[df['wirelen'] == 60, 'ProtocolType'] = 'UDP'
+        df.loc[df['wirelen'].isin([68, 90]), 'ProtocolType'] = 'PTP'
+        df.loc[df['wirelen'].isin([82, 434]), 'ProtocolType'] = 'AVTP'
+        # special treatment
+        df.loc[df['y_desc'] == 'P_I', 'ProtocolType'] = 'PTP'
 
         return cls(df, **kwargs)
 
@@ -278,117 +217,134 @@ class PktDataset: # 기존의 Dataset 클래스명의 충돌 방지를 위해 Pk
             time_end = monotime_max
 
         df = self.df.query(f'{time_start} <= monotime <= {time_end}').copy()
+        # print('Before [{} ~ {}] / Required [{} ~ {}] / After [{} ~ {}]'.format(
+        #     monotime_min, monotime_max,
+        #     time_start, time_end,
+        #     df['monotime'].min(), df['monotime'].max()
+        # ))
         return PktDataset(df)
         
     # 2-1. Feature generator 1 (FG1)
-    # [CHANGED] add stride argument and use it for generator
-    def do_fg1_transition_matrix(self, window_size=2048, stride=1) -> np.array:
+    def do_fg1_transition_matrix(self, window_size=2048) -> np.array:
+        # When the number of collected packets is n, a numpy array of shape = (n, 3, 3) should be the output
         df = self.df
-        idx = {'AVTP': 0, 'PTP': 1, 'UDP': 2}
-        N = len(idx)
+        # proto_types = sorted(df['ProtocolType'].unique()) # ex) ['AVTP', 'PTP', 'UDP']
+        idx = {'AVTP': 0, 'PTP': 1, 'UDP': 2} # ex) {'AVTP': 0, 'PTP': 1, 'UDP': 2}
+        N = len(idx) # 3
 
-        proto_seq = df['ProtocolType'].map(idx).values
+        # 1. ProtocolType sequence -> integer index
+        proto_seq = df['ProtocolType'].map(idx).values # [2, 0, 0, 1, 2]
 
+        # 2. generate T
         def seq_to_transition_matrix(seq):
-            T = np.zeros((N, N), dtype=np.float32)
-            for i in range(len(seq) - 1):
-                a, b = seq[i], seq[i+1]
-                if a >= 0 and b >= 0:
-                    T[a, b] += 1
-            denom = max(1, (len(seq) - 1))
-            T /= denom
-            return T
+          T = np.zeros((N, N), dtype=np.float32)
+          for i in range(len(seq) - 1):
+            a, b = seq[i], seq[i+1]
+            T[a, b] += 1
+          T /= (len(seq)-1) # normalization
+          return T
 
         if len(proto_seq) < window_size:
-            raise ValueError(f"Insufficient data length ({len(proto_seq)}) for window_size {window_size}")
+          raise ValueError(f"Insufficient data length ({len(proto_seq)}) for window_size {window_size}")
 
-        generator = TimeseriesGenerator(proto_seq, length=window_size, sampling_rate=1, stride=stride, batch_size=1, shuffle=False)
+        # 3. sliding window using TimeseriesGenerator
+        generator = TimeseriesGenerator(proto_seq, length=window_size, sampling_rate=1, stride=1, batch_size=1, shuffle=False)
+
+        # print("Generator length:", len(generator)) : 97715 - 2048 + 1 = 95668
 
         result = []
         for X, _ in generator:
-            seq = X[0]
-            result.append(seq_to_transition_matrix(seq))
+          seq = X[0] # (window_size, )
+          T = seq_to_transition_matrix(seq)
+          result.append(T)
 
-        return np.stack(result)
+        return np.stack(result) # (num_windows, N, N)
+
 
     # 2-2. Feature generator 2 (FG2)
-    # [CHANGED] adjust slice start with L2 length (VLAN-aware)
     def do_fg2_payload(self, window_size=2048, byte_start=0x22, byte_end=0x22 + 9) -> np.array:
         '''
-        - Take 9 bytes from the 34th byte offset within protocol/payload region (paper setting).
-        - Short payloads are padded with 0x00.
-        - Returns shape (n, 9) normalized to [0, 1].
+        - The paper's strategy is to take 9 bytes from the 0x22th byte for the payload loaded in each packet.  
+        - Short payloads should be padded with 0x00.
+        - When the number of collected packets is n, a numpy array with shape = (n, 9) should be generated. 
+        - FG2 does not need to apply TimeseriesGenerator.
         '''
         assert byte_start < byte_end
-        num_bytes = byte_end - byte_start
+        num_bytes = byte_end - byte_start # 9
 
         payloads = []
-        for frame in self.df['payload'].values:
-            l2 = _l2_len(frame)  # 14 or 18 (VLAN)
-            start = l2 + byte_start
-            end = start + num_bytes
+        for arr in self.df['payload'].values:
+          segment = np.zeros(num_bytes, dtype=np.uint8) # [0, 0, 0, ..., 0]
+          arr_len = len(arr)
+          for i in range(num_bytes): # 9
+            if byte_start + i < arr_len:
+              segment[i] = arr[byte_start + i]
+          payloads.append(segment / 255.0)
 
-            segment = np.zeros(num_bytes, dtype=np.uint8)
-            if start < len(frame):
-                segment_len = max(0, min(end, len(frame)) - start)
-                if segment_len > 0:
-                    segment[:segment_len] = frame[start:start+segment_len]
-            payloads.append(segment / 255.0)
+        return np.array(payloads) # (n ,9)
 
-        return np.array(payloads, dtype=np.float32)
 
     # 2-3. Feature generator 3 (FG3)
-    # [CHANGED] add stride argument and use it for generator
-    def do_fg3_statistics(self, window_size=2048, methods=('mean', 'std', 'skew'), stride=1) -> np.array:
+    def do_fg3_statistics(self, window_size=2048, methods=('mean', 'std', 'skew')) -> np.array:
         '''
-        - Returns shape=(num_windows, 3, 3).
-        - Applies log10 scaling with rules from the paper.
+        - When the number of collected packets is n, a numpy array of shape=(n, 3, 3) should be generated.
+        - The <feature normalization strategy> described at the bottom right of page 5 of the paper must be implemented.
         '''
         df = self.df
-        idx = {'AVTP': 0, 'PTP': 1, 'UDP': 2}
-        N = len(idx)
+        # proto_types = sorted(df['ProtocolType'].unique()) # ex) ['AVTP', 'PTP', 'UDP']
+        idx = {'AVTP': 0, 'PTP': 1, 'UDP': 2} # ex) {'AVTP': 0, 'PTP': 1, 'UDP': 2}
+        N = len(idx) # ex) 3
 
         monotime = df['monotime'].values
         protos = df['ProtocolType'].map(idx).values
 
+        # each window is constructed as [window_size * 2]
         generator = TimeseriesGenerator(
-            np.stack([monotime, protos], axis=1),
-            length=window_size,
-            sampling_rate=1,
-            stride=stride,
-            batch_size=1,
-            shuffle=False
-        )
+            np.stack([monotime, protos], axis=1), # (n, 2)
+            length = window_size,
+            sampling_rate = 1,
+            stride = 1,
+            batch_size = 1,
+            shuffle = False
+            )
 
         result = []
         for X, _ in generator:
-            x_window = X[0]
-            t = x_window[:, 0]
-            p = x_window[:, 1].astype(int)
+          x_window = X[0] # (window_size, 2)
+          t = x_window[:, 0] # first column of 'monotime' [1.0, 1.2, 1.3, 2.0, ...]
+          p = x_window[:, 1].astype(int) # second column of 'protos(protocol index)' [0, 0, 1, 0]
 
-            stat_matrix = np.full((N, 3), 1e+7, dtype=np.float32)
+          stat_matrix = np.full((N, 3), 1e+7, dtype=np.float32) # Initialize default value to 1e+7
 
-            for i in range(N):
-                ti = t[p == i]
-                if len(ti) >= 2:
-                    diffs = np.diff(ti)
-                    stat_matrix[i, 0] = np.mean(diffs)
-                    if len(diffs) >= 2:
-                        stat_matrix[i, 1] = np.std(diffs)
-                    if len(diffs) >= 3:
-                        stat_matrix[i, 2] = np.abs(skew(diffs))
+          for i in range(N):
+            t_i = t[p == i] # time sequence of the ith protocol / t : [1.0, 1.2, 1.3, 2.0, ...] / p==i : [True, True, False, True, ...] / t[p==i] : [1.0, 1.2, 2.0] => select protocol by this workflow
+            if len(t_i) >= 2:
+                diffs = np.diff(t_i)
+                mean_val = np.mean(diffs)
+                stat_matrix[i, 0] = mean_val
 
-            stat_matrix = np.where(stat_matrix == 0, 1e-7, stat_matrix)
-            stat_matrix = np.log10(stat_matrix)
+                if len(diffs) >= 2:
+                    std_val = np.std(diffs)
+                    stat_matrix[i, 1] = std_val
+                if len(diffs) >= 3:
+                    skew_val = np.abs(skew(diffs))
+                    stat_matrix[i, 2] = skew_val
+            
+          stat_matrix = np.where(stat_matrix == 0, 1e-7, stat_matrix)
+          stat_matrix = np.log10(stat_matrix)
 
-            result.append(stat_matrix)
+          result.append(stat_matrix)
 
-        return np.stack(result, dtype=np.float32)
+        return np.stack(result) # (num_windows, N, 3)
 
 dataset_train = PktDataset.towids_train()
 dataset_test = PktDataset.towids_test()
 
-# 3. Create train/validation/test sets
+
+# 3. Create train/validation/test sets by dividing the two packet dump datasets (dataset_train, dataset_test) into different time ranges.
+# Organize the number of malicious traffic (intrusion) and normal traffic (benign) in these sets into a table as below.
+# Arguments to be passed to the do function: [dataset, purpose, start time, end time, whether to remove the last 5 seconds of noise]
+
 args = [
     [dataset_train, 'Train', 5, 60, False],
     [dataset_train, 'Validation', 60, 71.11, False],
@@ -401,25 +357,49 @@ args = [
 def do(dataset, purpose, time_start, time_end, trim_last_5sec):
     name = 'Packet dump 1' if dataset is dataset_train else 'Packet dump 2'
 
-    dataset = dataset.trim(time_start, time_end, is_absolute=True)
-    if trim_last_5sec:
+    dataset = dataset.trim(time_start, time_end, is_absolute=True) # slice [time_start, time_end] part only in the entire dataset
+    if trim_last_5sec: # Remove noise remaining after the data collection step
         dataset = dataset.trim(time_end=5, is_absolute=False)
-        time_end = dataset.df['monotime'].max()
-    a = dataset.df['y'].value_counts()
-    a.name = name
-    a['Purpose'] = purpose
+        time_end = dataset.df['monotime'].max() # Since 'time_end' has changed after removing noise, update it again with the actual maximum time
+    a = dataset.df['y'].value_counts() 
+    a.name = name 
+    a['Purpose'] = purpose 
     a['Time range'] = '[{:.2f}, {:.2f}]'.format(time_start, time_end)
-    a = a.rename({0: 'Benign', 1: 'Intrusion'})
+    a = a.rename({0: 'Benign', 1: 'Intrusion'}) # 0 as benign, 1 as intrusion
     a = a.reindex(['Purpose', 'Time range', 'Benign', 'Intrusion'], fill_value=0)
     return a, dataset
 
-# 4. Define AEGenerator
+
+
+# 4. Define new Dataset Class : AEGenerator with sliding window
+'''
+- Converting the shape of each FG1-3, to match the dimension as an input value of the Autoencoder model afterwards
+    - x = (T, P, S)
+
+- dataset[i][0] → ((9,), (2048, 9), (9,))
+- dataset[i][1] → ((9,), (2048, 9), (9,)) ⇒ x == y since it's an autoencoder model
+- dataloader[i][0] → ((b, 9), (b, 2048, 9), (b, 9))
+'''
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim 
+from torch.utils.data import Dataset as TorchDataset, DataLoader
+from torch.utils.data import ConcatDataset
+
 class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
     def __init__(self, T, P, S, labels=None, window_size=2048, stride=1, sampling_rate=1, shuffle=False, reverse=False): 
         '''
-        T : nparray (num_windows, 3, 3)
-        P : nparray (num_packets, 9)
-        S : nparray (num_windows, 3, 3)
+        T : nparray (n, 3, 3) window 단위
+        P : nparray (m, 9) packet 단위
+        S : nparray (n, 3, 3) window 단위
+
+        window_size : P sliding window 크기 (default : 2048)
+        stride : sliding window stride (default : 1)
+        sampling_rate : window 내 sample 간 간격
+        shuffle : window의 index 순서를 랜덤화할지 여부
+        reverse : window 내부 순서를 뒤집을지 여부
         '''
         self.T = T
         self.P = P
@@ -432,29 +412,35 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         self.shuffle = shuffle
         self.reverse = reverse
 
+        '''
+        P 데이터에서 window 끝의 위치 index 리스트를 생성
+        - window 끝 index = window_size 이상 위치부터 sliding 시작
+        - stride 단위로 이동
+        - T, S 데이터 수에 맞게 index list 조정    
+        '''
         # index list
         self.indices = np.arange(window_size, len(P) + 1, stride)
         if len(self.indices) > len(T):
-            self.indices = self.indices[:len(T)] # align with T, S
-
+            self.indices = self.indices[:len(T)] # T, S 크기에 맞춤
+        
         if self.labels is not None:
             assert len(self.indices) == len(self.labels), f'Label number {len(self.labels)} ≠ Index number {len(self.indices)}'
 
-        # [CHANGED] To avoid misalignment when shuffle=True, keep it off by default (already default).
         if self.shuffle:
             np.random.shuffle(self.indices)
+        
     
-    def __len__(self):
+    def __len__(self): # index list 길이 = 총 샘플 수
         return len(self.indices)
 
-    def __getitem__(self, index):
-        idx = self.indices[index]  # packet-level end index for the window
-
-        # T, S window: use the same sequential window order as constructed (index-th window)
+    def __getitem__(self, index): # 하나의 샘플(x, y)를 리턴
+        idx = self.indices[index] # idx : 현재 window의 끝 index
+        
+        # T, S : (3,3) → (9,) flatten
         t = torch.from_numpy(self.T[index].astype('float32')).flatten()
         s = torch.from_numpy(self.S[index].astype('float32')).flatten()
         
-        # P window by end idx
+        # P window
         start_idx = max(0, idx - self.window_size)
         end_idx = idx
         p_window = self.P[start_idx : end_idx : self.sampling_rate]
@@ -462,11 +448,13 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         if self.reverse:
             p_window = p_window[::-1]
 
+        # zero padding
         if p_window.shape[0] < self.window_size:
             pad_size = self.window_size - p_window.shape[0]
             padding = np.zeros((pad_size, self.P.shape[1]), dtype=np.float32)
             p_window = np.vstack((padding, p_window))
 
+        # 최종 window를 torch tensor로 변환
         p = torch.from_numpy(p_window.astype('float32'))
 
         x = (t, p, s)
@@ -485,7 +473,7 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
         return (t.shape, p.shape, s.shape)
 
     @property
-    def num_samples(self):
+    def num_samples(self): # number of total samples
         return len(self)
 
     def __str__(self):
@@ -494,7 +482,11 @@ class AEGenerator(TorchDataset): # Dataset 변수명 충돌 해결
     def __repr__(self):
         return self.__str__()
 
+
+
 # 5. Concat train/validation/test dataset and generate final dataloader for the model
+
+# return paths to the caches T, P, S files for a given dataset index.
 def get_cache_paths(cache_dir, split_name, idx, window_size=2048, stride=1):
     base = Path(cache_dir) / split_name
     base.mkdir(parents=True, exist_ok=True)
@@ -503,21 +495,17 @@ def get_cache_paths(cache_dir, split_name, idx, window_size=2048, stride=1):
     s_path = base / f'S_idx[{idx}]_ws{window_size}_st{stride}.pkl'
     return t_path, p_path, s_path
 
+
 def process_split(indices, split_name, window_size, stride, cache_dir):
     datasets = []
 
-    # 1. load raw sliced datasets
-    list_dataset_sub = list()
+    # 1. load raw sliced datasets (Packet dump 1, 2 w/ slicing)
+    list_dataset_sub = list() ######### From here, you can retrieve the Dataset instance as needed.
     for arg in tqdm(args, desc=f'Loading args for {split_name}'):
         _, dataset_sub = do(*arg)
         list_dataset_sub.append(dataset_sub)
     
-    # [CHANGED] Ensure Train/Valid contain only benign (defensive)
-    if split_name in ('train','valid'):
-        for i in indices:
-            assert list_dataset_sub[i].df['y'].max() == 0, f"{split_name} split idx={i} contains abnormal labels."
-
-    # 2. For each dataset slice
+    # 2. For each dataset slice (e.g. train/valid/test from Packet dump 1, 2)
     for idx in tqdm(indices, desc=f'Creating AEGenerators for {split_name} indices'):
         dataset = list_dataset_sub[idx]
         t_path, p_path, s_path = get_cache_paths(cache_dir, split_name, idx, window_size, stride) 
@@ -528,7 +516,7 @@ def process_split(indices, split_name, window_size, stride, cache_dir):
                 T = pickle.load(f)
         else:
             print(f"    Generating T for idx={idx}...")
-            T = dataset.do_fg1_transition_matrix(window_size=window_size, stride=stride)  # [CHANGED]
+            T = dataset.do_fg1_transition_matrix()
             with t_path.open('wb') as f:
                 pickle.dump(T, f)
             
@@ -538,7 +526,7 @@ def process_split(indices, split_name, window_size, stride, cache_dir):
                 P = pickle.load(f)
         else:
             print(f"    Generating P for idx={idx}...")
-            P = dataset.do_fg2_payload(window_size=window_size)  # keep API consistent
+            P = dataset.do_fg2_payload()
             with p_path.open('wb') as f:
                 pickle.dump(P, f)
 
@@ -548,22 +536,26 @@ def process_split(indices, split_name, window_size, stride, cache_dir):
                 S = pickle.load(f)
         else:
             print(f"    Generating S for idx={idx}...")
-            S = dataset.do_fg3_statistics(window_size=window_size, stride=stride)  # [CHANGED]
+            S = dataset.do_fg3_statistics()
             with s_path.open('wb') as f:
                 pickle.dump(S, f)
 
-        # 3. Labels for test set
+        # 3. Generate window-wise labels if test set - only test set has y in [0, 1]
         labels = None
+        # Only generate labels for test set or if enable_label is True
         if split_name == 'test':
-            y_seq = dataset.df['y'].values
+            y_seq = dataset.df['y'].values # packet-wise labels
+
+            # Generate window and indices (same as AEGenerator)
             all_indices = np.arange(window_size, len(P) + 1, stride)
             if len(all_indices) > len(T):
                 all_indices = all_indices[:len(T)]
 
+            # Create label per window : if any intrusion(1) exists in the window, label as (1)
             labels = []
-            for i_end in all_indices:
-                start_idx = max(0, i_end - window_size)
-                end_idx = i_end
+            for i in all_indices:
+                start_idx = max(0, i - window_size)
+                end_idx = i
                 window_label = y_seq[start_idx : end_idx]
                 labels.append(int(window_label.max()))
             labels = np.array(labels)
@@ -572,11 +564,18 @@ def process_split(indices, split_name, window_size, stride, cache_dir):
     
     return ConcatDataset(datasets)
 
+
+
 def get_processed_dataloader(window_size=2048, stride=1, batch_size=64, cache_dir='./cache'):
     splits = {'train': [0, 3], 'valid': [1, 4], 'test': [2, 5]}
     dataloaders = {}
     for split_name, indices in splits.items():
+        # enable_label = (split_name == 'valid')
         concat_dataset = process_split(indices, split_name, window_size, stride, cache_dir)
+        
+        # drop_last = False (default) : By default, PyTorch DataLoader divides the entire data into the specified batch_size and includes the remaining data in the last batch.
         dataloader = DataLoader(concat_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
         dataloaders[split_name] = dataloader
     return dataloaders['train'], dataloaders['valid'], dataloaders['test']
+
+

@@ -1,5 +1,0 @@
-attack_type,features,misses,fnr
-AVTP frame injection,205224,8289,0.040390
-CAN DoS,266907,2694,0.010093
-CAN replay,208171,15641,0.075135
-PTP sync attack,264282,47,0.000178
