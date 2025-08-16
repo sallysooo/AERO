@@ -2,7 +2,7 @@
 > Automotive Ethernet Real-Time Observer for Anomaly Detection in In-Vehicle Networks
 
 This repository contains a **modular PyTorch reproduction** of the AERO anomaly-detection pipeline for Automotive Ethernet.
-It implements the full training/evaluation flow described in the paper (autoencoder pretraining → point‑mapper pretrain → criterion point → fine‑tune → threshold selection → per‑attack evaluation), and provides both the paper-faithful original data pipeline and a tsabilized variant(ver2).
+It implements the full training/evaluation flow described in the paper (autoencoder pretraining → point‑mapper pretrain → criterion point → fine‑tune → threshold selection → per‑attack evaluation), and provides both the paper-faithful original data pipeline and a stabilized variant(ver2).
 
 ---
 
